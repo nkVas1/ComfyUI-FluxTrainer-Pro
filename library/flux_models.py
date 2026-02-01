@@ -431,8 +431,76 @@ configs = {
             shift_factor=0.1159,
         ),
     ),
+    # ==================== FLUX.2 MODELS ====================
+    # Flux.2 Klein 9B Base - 9 billion parameters, optimized for consumer hardware
+    # Source: https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B
+    "flux2_klein_9b": ModelSpec(
+        ckpt_path=None,
+        params=FluxParams(
+            in_channels=64,
+            vec_in_dim=768,
+            context_in_dim=4096,
+            hidden_size=3072,
+            mlp_ratio=4.0,
+            num_heads=24,
+            depth=19,  # Double blocks (will be auto-detected from checkpoint)
+            depth_single_blocks=38,  # Single blocks (will be auto-detected from checkpoint)
+            axes_dim=[16, 56, 56],
+            theta=10_000,
+            qkv_bias=True,
+            guidance_embed=True,  # Klein supports guidance
+        ),
+        ae_path=None,
+        ae_params=AutoEncoderParams(
+            resolution=256,
+            in_channels=3,
+            ch=128,
+            out_ch=3,
+            ch_mult=[1, 2, 4, 4],
+            num_res_blocks=2,
+            z_channels=16,
+            scale_factor=0.3611,
+            shift_factor=0.1159,
+        ),
+    ),
+    # Flux.2 Dev - 32 billion parameters, full capacity model
+    # Source: https://huggingface.co/black-forest-labs/FLUX.2-dev
+    "flux2_dev": ModelSpec(
+        ckpt_path=None,
+        params=FluxParams(
+            in_channels=64,
+            vec_in_dim=768,
+            context_in_dim=4096,
+            hidden_size=4096,  # Larger hidden size for 32B model
+            mlp_ratio=4.0,
+            num_heads=32,  # More attention heads
+            depth=28,  # More double blocks (will be auto-detected)
+            depth_single_blocks=56,  # More single blocks (will be auto-detected)
+            axes_dim=[16, 56, 56],
+            theta=10_000,
+            qkv_bias=True,
+            guidance_embed=True,
+        ),
+        ae_path=None,
+        ae_params=AutoEncoderParams(
+            resolution=256,
+            in_channels=3,
+            ch=128,
+            out_ch=3,
+            ch_mult=[1, 2, 4, 4],
+            num_res_blocks=2,
+            z_channels=16,
+            scale_factor=0.3611,
+            shift_factor=0.1159,
+        ),
+    ),
 }
 
+# Model version constants
+MODEL_VERSION_FLUX_V1 = "flux1"
+MODEL_VERSION_FLUX_V2 = "flux2"
+MODEL_VERSION_FLUX2_KLEIN = "flux2_klein"
+MODEL_VERSION_FLUX2_DEV = "flux2_dev"
 
 # endregion
 

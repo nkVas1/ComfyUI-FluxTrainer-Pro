@@ -1,0 +1,456 @@
+{
+  "last_node_id": 15,
+  "last_link_id": 18,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Flux2TrainModelSelect",
+      "pos": [50, 100],
+      "size": {"0": 400, "1": 180},
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "flux2_models",
+          "type": "TRAIN_FLUX2_MODELS",
+          "links": [1],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Flux2TrainModelSelect"
+      },
+      "widgets_values": [
+        "flux2_klein_9b.safetensors",
+        "ae.safetensors",
+        "clip_l.safetensors",
+        "t5xxl_fp8_e4m3fn.safetensors",
+        ""
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 2,
+      "type": "Flux2LowVRAMConfig",
+      "pos": [50, 350],
+      "size": {"0": 400, "1": 280},
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "low_vram_config",
+          "type": "FLUX2_LOW_VRAM_CONFIG",
+          "links": [2],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Flux2LowVRAMConfig"
+      },
+      "widgets_values": [
+        "aggressive",
+        8.0,
+        32.0,
+        25,
+        true,
+        true,
+        true,
+        true
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 3,
+      "type": "TrainDatasetGeneralConfig",
+      "pos": [500, 100],
+      "size": {"0": 350, "1": 200},
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "dataset_general",
+          "type": "JSON",
+          "links": [3],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TrainDatasetGeneralConfig"
+      },
+      "widgets_values": [
+        false,
+        true,
+        false,
+        0.0,
+        false,
+        false,
+        ".txt"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "TrainDatasetAdd",
+      "pos": [500, 350],
+      "size": {"0": 350, "1": 350},
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "dataset_config",
+          "type": "JSON",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "dataset",
+          "type": "JSON",
+          "links": [4],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "TrainDatasetAdd"
+      },
+      "widgets_values": [
+        1024,
+        1024,
+        1,
+        "path/to/your/dataset",
+        "trigger_word",
+        true,
+        false,
+        1,
+        256,
+        1024
+      ]
+    },
+    {
+      "id": 5,
+      "type": "OptimizerConfig",
+      "pos": [500, 750],
+      "size": {"0": 350, "1": 200},
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "optimizer_settings",
+          "type": "ARGS",
+          "links": [5],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "OptimizerConfig"
+      },
+      "widgets_values": [
+        "adamw8bit",
+        1e-4,
+        1.0,
+        4
+      ]
+    },
+    {
+      "id": 6,
+      "type": "Flux2InitTraining",
+      "pos": [900, 100],
+      "size": {"0": 450, "1": 600},
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "flux2_models",
+          "type": "TRAIN_FLUX2_MODELS",
+          "link": 1
+        },
+        {
+          "name": "dataset",
+          "type": "JSON",
+          "link": 4
+        },
+        {
+          "name": "optimizer_settings",
+          "type": "ARGS",
+          "link": 5
+        },
+        {
+          "name": "low_vram_config",
+          "type": "FLUX2_LOW_VRAM_CONFIG",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "links": [6],
+          "slot_index": 0
+        },
+        {
+          "name": "epochs_count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "output_path",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "args",
+          "type": "KOHYA_ARGS",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Flux2InitTraining"
+      },
+      "widgets_values": [
+        "my_flux2_lora",
+        "flux2_trainer_output",
+        16,
+        16.0,
+        1e-4,
+        1000,
+        "disk",
+        "disk",
+        "bf16",
+        "bf16",
+        "fused_backward_pass",
+        "a photo of sks person | sks person in anime style",
+        "",
+        42
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 7,
+      "type": "Flux2TrainAndValidateLoop",
+      "pos": [1400, 100],
+      "size": {"0": 350, "1": 150},
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "link": 6
+        }
+      ],
+      "outputs": [
+        {
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "links": [7],
+          "slot_index": 0
+        },
+        {
+          "name": "final_step",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Flux2TrainAndValidateLoop"
+      },
+      "widgets_values": [
+        250,
+        500
+      ]
+    },
+    {
+      "id": 8,
+      "type": "Flux2TrainSave",
+      "pos": [1400, 300],
+      "size": {"0": 350, "1": 120},
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "links": [8],
+          "slot_index": 0
+        },
+        {
+          "name": "lora_path",
+          "type": "STRING",
+          "links": [9],
+          "slot_index": 1
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Flux2TrainSave"
+      },
+      "widgets_values": [
+        false,
+        true
+      ]
+    },
+    {
+      "id": 9,
+      "type": "Flux2TrainEnd",
+      "pos": [1400, 470],
+      "size": {"0": 350, "1": 80},
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "name": "final_lora_path",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Flux2TrainEnd"
+      }
+    },
+    {
+      "id": 10,
+      "type": "Flux2MemoryEstimator",
+      "pos": [50, 680],
+      "size": {"0": 400, "1": 180},
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "low_vram_config",
+          "type": "FLUX2_LOW_VRAM_CONFIG",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "memory_report",
+          "type": "STRING",
+          "links": [10],
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "Flux2MemoryEstimator"
+      },
+      "widgets_values": [
+        "flux2_klein_9b",
+        16,
+        1,
+        1024
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 11,
+      "type": "ShowText",
+      "pos": [50, 920],
+      "size": {"0": 400, "1": 350},
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "link": 10,
+          "widget": {
+            "name": "text"
+          }
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ShowText"
+      },
+      "widgets_values": ["Memory estimation will appear here..."],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 12,
+      "type": "Note",
+      "pos": [50, 20],
+      "size": {"0": 1700, "1": 70},
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "properties": {
+        "text": "🔥 FLUX.2 Low VRAM LoRA Training Workflow\n\nOptimized for 8GB GPU (RTX 3060 Ti). This workflow uses block swapping, CPU offloading, and FP8 quantization.\nAdjust 'blocks_to_swap' in Low VRAM Config if you have more/less VRAM. Higher values = less VRAM usage but slower training."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    }
+  ],
+  "links": [
+    [1, 1, 0, 6, 0, "TRAIN_FLUX2_MODELS"],
+    [2, 2, 0, 6, 3, "FLUX2_LOW_VRAM_CONFIG"],
+    [3, 3, 0, 4, 0, "JSON"],
+    [4, 4, 0, 6, 1, "JSON"],
+    [5, 5, 0, 6, 2, "ARGS"],
+    [6, 6, 0, 7, 0, "NETWORKTRAINER"],
+    [7, 7, 0, 8, 0, "NETWORKTRAINER"],
+    [8, 8, 0, 9, 0, "NETWORKTRAINER"],
+    [9, 8, 1, null, null, "STRING"],
+    [10, 10, 0, 11, 0, "STRING"]
+  ],
+  "groups": [
+    {
+      "title": "1. Model Selection",
+      "bounding": [40, 90, 420, 550],
+      "color": "#3f789e"
+    },
+    {
+      "title": "2. Dataset Configuration",
+      "bounding": [490, 90, 380, 880],
+      "color": "#8A8"
+    },
+    {
+      "title": "3. Training Pipeline",
+      "bounding": [890, 90, 880, 480],
+      "color": "#A88"
+    },
+    {
+      "title": "Memory Estimation (Optional)",
+      "bounding": [40, 670, 420, 620],
+      "color": "#88A"
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.7,
+      "offset": [50, 30]
+    }
+  },
+  "version": 0.4
+}

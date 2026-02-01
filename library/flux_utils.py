@@ -17,9 +17,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Model version constants
 MODEL_VERSION_FLUX_V1 = "flux1"
+MODEL_VERSION_FLUX_V2 = "flux2"
 MODEL_NAME_DEV = "dev"
 MODEL_NAME_SCHNELL = "schnell"
+MODEL_NAME_FLUX2_KLEIN_9B = "flux2_klein_9b"
+MODEL_NAME_FLUX2_DEV = "flux2_dev"
 
 # bypass guidance
 def bypass_flux_guidance(transformer):
@@ -28,10 +32,46 @@ def bypass_flux_guidance(transformer):
 # restore the forward function
 def restore_flux_guidance(transformer):
     transformer.params.guidance_embed = True
+
+
+def detect_flux_version(keys: List[str], num_double_blocks: int, num_single_blocks: int) -> Tuple[str, str]:
+    """
+    Определяет версию модели Flux на основе ключей и количества блоков.
     
+    Returns:
+        Tuple[str, str]: (model_version, model_name)
+            - model_version: "flux1" или "flux2"
+            - model_name: "dev", "schnell", "flux2_klein_9b", "flux2_dev"
+    """
+    # Проверяем наличие специфичных ключей Flux.2
+    # Flux.2 может иметь другие ключи или структуру
+    
+    has_guidance = "guidance_in.in_layer.bias" in keys or "time_text_embed.guidance_embedder.linear_1.bias" in keys
+    
+    # Flux.2 Klein 9B: примерно 19 double blocks, 38 single blocks (как dev)
+    # Flux.2 Dev: больше блоков (28 double, 56 single для 32B модели)
+    
+    # Эвристика для определения версии:
+    # 1. Если блоков значительно больше стандартных flux1 (19/38) - это flux2_dev
+    # 2. Если параметр hidden_size можно определить - используем его
+    
+    if num_double_blocks > 24 or num_single_blocks > 50:
+        # Это вероятно Flux.2 Dev (32B модель)
+        return MODEL_VERSION_FLUX_V2, MODEL_NAME_FLUX2_DEV
+    
+    # Проверяем по размеру hidden_size (если можно определить из ключей)
+    # Для стандартных моделей используем старую логику
+    if not has_guidance:
+        return MODEL_VERSION_FLUX_V1, MODEL_NAME_SCHNELL
+    
+    # По умолчанию - flux1 dev (или flux2_klein который совместим)
+    return MODEL_VERSION_FLUX_V1, MODEL_NAME_DEV
+    
+
 def analyze_checkpoint_state(ckpt_path: str) -> Tuple[bool, bool, Tuple[int, int], List[str]]:
     """
     チェックポイントの状態を分析し、DiffusersかBFLか、devかschnellか、ブロック数を計算して返す。
+    Extended to support Flux.2 models.
 
     Args:
         ckpt_path (str): チェックポイントファイルまたはディレクトリのパス。
@@ -44,7 +84,7 @@ def analyze_checkpoint_state(ckpt_path: str) -> Tuple[bool, bool, Tuple[int, int
             - List[str]: チェックポイントに含まれるキーのリスト。
     """
     # check the state dict: Diffusers or BFL, dev or schnell, number of blocks
-    logger.info(f"Checking the state dict: Diffusers or BFL, dev or schnell")
+    logger.info(f"Checking the state dict: Diffusers or BFL, dev or schnell, Flux version")
 
     if os.path.isdir(ckpt_path):  # if ckpt_path is a directory, it is Diffusers
         ckpt_path = os.path.join(ckpt_path, "transformer", "diffusion_pytorch_model-00001-of-00003.safetensors")

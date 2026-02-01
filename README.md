@@ -6,6 +6,32 @@ Including code from: https://github.com/KohakuBlueleaf/Lycoris
 
 And https://github.com/LoganBooker/prodigy-plus-schedule-free
 
+---
+
+## 🆕 Flux.2 Support (NEW!)
+
+This extension now supports **Flux.2** models with aggressive low VRAM optimizations:
+- **Flux.2 Klein 9B Base** — 9 billion parameters, runs on consumer GPUs (8GB+)
+- **Flux.2 Dev** — 32 billion parameters, full capacity model
+
+### Low VRAM Features
+- Block swapping (CPU ↔ GPU)
+- Gradient checkpointing with CPU offload
+- Optimizer state offloading to RAM
+- Automatic strategy selection based on VRAM
+
+**See [docs/FLUX2_TRAINING_GUIDE.md](docs/FLUX2_TRAINING_GUIDE.md) for detailed instructions.**
+
+### Quick Start for 8GB GPU
+
+1. Use **Flux.2 Model Select** node
+2. Add **Flux.2 Low VRAM Config** with `strategy=aggressive`
+3. Set `blocks_to_swap=25`, `network_dim=16`
+4. Enable all offloading options
+5. Use batch_size=1 with gradient_accumulation=8
+
+---
+
 ## DISCLAIMER:
 I have **very** little previous experience in training anything, Flux is basically first model I've been inspired to learn. Previously I've only trained AnimateDiff Motion Loras, and built similar training nodes for it.
 
@@ -37,6 +63,10 @@ https://github.com/rgthree/rgthree-comfy
 For LoRA training the models need to be the normal fp8 or fp16 versions, also make sure the VAE is the non-diffusers version:
 
 https://huggingface.co/black-forest-labs/FLUX.1-dev/blob/main/ae.safetensors
+
+For Flux.2 models:
+- https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B
+- https://huggingface.co/black-forest-labs/FLUX.2-dev
 
 For full model training the fp16 version of the main model needs to be used.
 

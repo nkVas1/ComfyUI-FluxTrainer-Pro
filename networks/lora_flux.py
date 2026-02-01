@@ -1,6 +1,22 @@
 # temporary minimum implementation of LoRA
 # FLUX doesn't have Conv2d, so we ignore it
 # TODO commonize with the original implementation
+#
+# ======================================================================
+# FLUX.2 COMPATIBILITY NOTE:
+# ======================================================================
+# This module supports both FLUX.1 and FLUX.2 models (Klein 9B, Dev).
+# The LoRA architecture dynamically adapts to the model's structure by
+# detecting DoubleStreamBlock and SingleStreamBlock modules at runtime.
+#
+# For FLUX.2 Klein 9B (~9B params): similar structure to FLUX.1 dev
+# For FLUX.2 Dev (~32B params): more blocks, larger hidden dimensions
+#
+# Low VRAM training tips for FLUX.2:
+# - Use lower network_dim (rank): 8-16 instead of 64+
+# - Enable split_qkv=False for memory efficiency
+# - Use train_blocks="single" to train only single blocks (faster, less memory)
+# ======================================================================
 
 # LoRA network module
 # reference:
