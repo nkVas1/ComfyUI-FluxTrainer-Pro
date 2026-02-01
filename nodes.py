@@ -64,7 +64,8 @@ class FluxTrainModelSelect:
                     "t5": (folder_paths.get_filename_list("clip"), ),
                 },
                 "optional": {
-                    "lora_path": ("STRING",{"multiline": True, "forceInput": True, "default": "", "tooltip": "pre-trained LoRA path to load (network_weights)"}),
+                    # [SENIOR FIX] Removed forceInput=True to allow widget usage
+                    "lora_path": ("STRING", {"multiline": True, "default": "", "tooltip": "Pre-trained LoRA path to continue training from (optional)"}),
                 }
         }
 
@@ -200,6 +201,21 @@ class TrainDatasetAdd:
         
         # [SENIOR FIX] Deep copy to prevent mutating the upstream dictionary (ComfyUI caching issue)
         dataset_config = copy.deepcopy(dataset_config)
+        
+        # [IMPROVEMENT] Validate dataset path exists
+        if dataset_path:
+            expanded_path = os.path.expanduser(dataset_path)
+            if not os.path.isabs(expanded_path):
+                # Try relative to ComfyUI root
+                expanded_path = os.path.join(os.getcwd(), expanded_path)
+            if not os.path.exists(expanded_path):
+                logger.warning(f"⚠️ Dataset path not found: {dataset_path}")
+                logger.info(f"   Searched at: {expanded_path}")
+            else:
+                # Count images
+                image_exts = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
+                image_count = sum(1 for f in os.listdir(expanded_path) if os.path.splitext(f)[1].lower() in image_exts)
+                logger.info(f"✅ Dataset: {dataset_path} ({image_count} images)")
         
         new_dataset = {
             "resolution": (width, height),
@@ -1777,11 +1793,10 @@ class ExtractFluxLoRA:
      
         return (outpath,)
 
-NODE_CLASS_MAPPINGS = {
-    "InitFluxLoRATraining": InitFluxLoRATraining,
-    "InitFluxTraining": InitFluxTraining,
-    "FluxTrainModelSelect": FluxTrainModelSelect,
-    "TrainDatasetGeneralConfig": TrainDatasetGeneralConfig,
+
+# =============================================================================
+# NODE MAPPINGS
+# =============================================================================
 if IMPORTS_OK:
     NODE_CLASS_MAPPINGS = {
         "InitFluxLoRATraining": InitFluxLoRATraining,
