@@ -46,7 +46,7 @@ We welcome suggestions for new features! Please:
 
 ```bash
 # Clone the repository / Клонируйте репозиторий
-git clone https://github.com/YOUR_USERNAME/ComfyUI-FluxTrainer-Pro.git
+git clone https://github.com/nkVas1/ComfyUI-FluxTrainer-Pro.git
 cd ComfyUI-FluxTrainer-Pro
 
 # Create a virtual environment (recommended)

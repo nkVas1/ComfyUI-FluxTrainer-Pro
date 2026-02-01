@@ -37,10 +37,10 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/YOUR_USERNAME/ComfyUI-FluxTrainer-Pro"
-Documentation = "https://github.com/YOUR_USERNAME/ComfyUI-FluxTrainer-Pro/blob/main/docs/FLUX2_TRAINING_GUIDE.md"
-Issues = "https://github.com/YOUR_USERNAME/ComfyUI-FluxTrainer-Pro/issues"
-Changelog = "https://github.com/YOUR_USERNAME/ComfyUI-FluxTrainer-Pro/blob/main/CHANGELOG.md"
+Repository = "https://github.com/nkVas1/ComfyUI-FluxTrainer-Pro"
+Documentation = "https://github.com/nkVas1/ComfyUI-FluxTrainer-Pro/blob/main/docs/FLUX2_TRAINING_GUIDE.md"
+Issues = "https://github.com/nkVas1/ComfyUI-FluxTrainer-Pro/issues"
+Changelog = "https://github.com/nkVas1/ComfyUI-FluxTrainer-Pro/blob/main/CHANGELOG.md"
 Original = "https://github.com/kijai/ComfyUI-FluxTrainer"
 
 # Used by Comfy Registry https://comfyregistry.org

@@ -47,7 +47,7 @@ This project is a **derivative work** based on the excellent [ComfyUI-FluxTraine
 ## 🚀 This Fork's Contributions / Вклад этого форка
 
 ### ComfyUI-FluxTrainer-Pro
-**Author**: [Your GitHub Username]
+**Author**: [nkVas1](https://github.com/nkVas1)
 
 #### New Features / Новые функции:
 - ✅ **Flux.2 Support**: Klein 9B Base and Dev models
