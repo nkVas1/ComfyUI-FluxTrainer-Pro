@@ -5,29 +5,41 @@ from torchvision import transforms
 import folder_paths
 import comfy.model_management as mm
 import comfy.utils
-import toml
 import json
 import time
 import shutil
 import shlex
-
 from pathlib import Path
+
+# --- Safe Imports ---
+IMPORTS_OK = True
+IMPORT_ERROR_MSG = ""
+try:
+    import torch
+    import toml
+    from torchvision import transforms
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import io
+    from PIL import Image
+
+    from .flux_train_network_comfy import FluxNetworkTrainer
+    from .library import flux_train_utils as  flux_train_utils
+    from .flux_train_comfy import FluxTrainer
+    from .flux_train_comfy import setup_parser as train_setup_parser
+    from .library.device_utils import init_ipex
+    init_ipex()
+
+    from .library import train_util
+    from .train_network import setup_parser as train_network_setup_parser
+except Exception as e:
+    IMPORTS_OK = False
+    IMPORT_ERROR_MSG = str(e)
+    print(f"\n[ComfyUI-FluxTrainer-Pro] ❌ Critical Import Error (Legacy Nodes): {e}")
+
 script_directory = os.path.dirname(os.path.abspath(__file__))
-
-from .flux_train_network_comfy import FluxNetworkTrainer
-from .library import flux_train_utils as  flux_train_utils
-from .flux_train_comfy import FluxTrainer
-from .flux_train_comfy import setup_parser as train_setup_parser
-from .library.device_utils import init_ipex
-init_ipex()
-
-from .library import train_util
-from .train_network import setup_parser as train_network_setup_parser
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import io
-from PIL import Image
+# --------------------
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1747,52 +1759,79 @@ NODE_CLASS_MAPPINGS = {
     "InitFluxTraining": InitFluxTraining,
     "FluxTrainModelSelect": FluxTrainModelSelect,
     "TrainDatasetGeneralConfig": TrainDatasetGeneralConfig,
-    "TrainDatasetAdd": TrainDatasetAdd,
-    "FluxTrainLoop": FluxTrainLoop,
-    "VisualizeLoss": VisualizeLoss,
-    "FluxTrainValidate": FluxTrainValidate,
-    "FluxTrainValidationSettings": FluxTrainValidationSettings,
-    "FluxTrainEnd": FluxTrainEnd,
-    "FluxTrainSave": FluxTrainSave,
-    "FluxKohyaInferenceSampler": FluxKohyaInferenceSampler,
-    "UploadToHuggingFace": UploadToHuggingFace,
-    "OptimizerConfig": OptimizerConfig,
-    "OptimizerConfigAdafactor": OptimizerConfigAdafactor,
-    "FluxTrainSaveModel": FluxTrainSaveModel,
-    "ExtractFluxLoRA": ExtractFluxLoRA,
-    "OptimizerConfigProdigy": OptimizerConfigProdigy,
-    "FluxTrainResume": FluxTrainResume,
-    "FluxTrainBlockSelect": FluxTrainBlockSelect,
-    "TrainDatasetRegularization": TrainDatasetRegularization,
-    "FluxTrainAndValidateLoop": FluxTrainAndValidateLoop,
-    "OptimizerConfigProdigyPlusScheduleFree": OptimizerConfigProdigyPlusScheduleFree,
-    "FluxTrainerLossConfig": FluxTrainerLossConfig,
-    "TrainNetworkConfig": TrainNetworkConfig,
-}
+if IMPORTS_OK:
+    NODE_CLASS_MAPPINGS = {
+        "InitFluxLoRATraining": InitFluxLoRATraining,
+        "InitFluxTraining": InitFluxTraining,
+        "FluxTrainModelSelect": FluxTrainModelSelect,
+        "TrainDatasetGeneralConfig": TrainDatasetGeneralConfig,
+        "TrainDatasetAdd": TrainDatasetAdd,
+        "FluxTrainLoop": FluxTrainLoop,
+        "VisualizeLoss": VisualizeLoss,
+        "FluxTrainValidate": FluxTrainValidate,
+        "FluxTrainValidationSettings": FluxTrainValidationSettings,
+        "FluxTrainEnd": FluxTrainEnd,
+        "FluxTrainSave": FluxTrainSave,
+        "FluxKohyaInferenceSampler": FluxKohyaInferenceSampler,
+        "UploadToHuggingFace": UploadToHuggingFace,
+        "OptimizerConfig": OptimizerConfig,
+        "OptimizerConfigAdafactor": OptimizerConfigAdafactor,
+        "FluxTrainSaveModel": FluxTrainSaveModel,
+        "ExtractFluxLoRA": ExtractFluxLoRA,
+        "OptimizerConfigProdigy": OptimizerConfigProdigy,
+        "FluxTrainResume": FluxTrainResume,
+        "FluxTrainBlockSelect": FluxTrainBlockSelect,
+        "TrainDatasetRegularization": TrainDatasetRegularization,
+        "FluxTrainAndValidateLoop": FluxTrainAndValidateLoop,
+        "OptimizerConfigProdigyPlusScheduleFree": OptimizerConfigProdigyPlusScheduleFree,
+        "FluxTrainerLossConfig": FluxTrainerLossConfig,
+        "TrainNetworkConfig": TrainNetworkConfig,
+    }
+else:
+    class DependencyErrorNodeLegacy:
+        @classmethod
+        def INPUT_TYPES(s): return {"required": {}}
+        RETURN_TYPES = ()
+        FUNCTION = "error"
+        CATEGORY = "FluxTrainer"
+        def error(self): raise ImportError(f"Missing dependencies: {IMPORT_ERROR_MSG}")
+
+    NODE_CLASS_MAPPINGS = {k: DependencyErrorNodeLegacy for k in [
+        "InitFluxLoRATraining", "InitFluxTraining", "FluxTrainModelSelect",
+        "TrainDatasetGeneralConfig", "TrainDatasetAdd", "FluxTrainLoop",
+        "VisualizeLoss", "FluxTrainValidate", "FluxTrainValidationSettings",
+        "FluxTrainEnd", "FluxTrainSave", "FluxKohyaInferenceSampler",
+        "UploadToHuggingFace", "OptimizerConfig", "OptimizerConfigAdafactor",
+        "FluxTrainSaveModel", "ExtractFluxLoRA", "OptimizerConfigProdigy",
+        "FluxTrainResume", "FluxTrainBlockSelect", "TrainDatasetRegularization",
+        "FluxTrainAndValidateLoop", "OptimizerConfigProdigyPlusScheduleFree",
+        "FluxTrainerLossConfig", "TrainNetworkConfig"
+    ]}
+
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "InitFluxLoRATraining": "Init Flux LoRA Training",
-    "InitFluxTraining": "Init Flux Training",
-    "FluxTrainModelSelect": "FluxTrain ModelSelect",
-    "TrainDatasetGeneralConfig": "TrainDatasetGeneralConfig",
-    "TrainDatasetAdd": "TrainDatasetAdd",
-    "FluxTrainLoop": "Flux Train Loop",
-    "VisualizeLoss": "Visualize Loss",
-    "FluxTrainValidate": "Flux Train Validate",
-    "FluxTrainValidationSettings": "Flux Train Validation Settings",
-    "FluxTrainEnd": "Flux LoRA Train End",
-    "FluxTrainSave": "Flux Train Save LoRA",
-    "FluxKohyaInferenceSampler": "Flux Kohya Inference Sampler",
-    "UploadToHuggingFace": "Upload To HuggingFace",
-    "OptimizerConfig": "Optimizer Config",
-    "OptimizerConfigAdafactor": "Optimizer Config Adafactor",
-    "FluxTrainSaveModel": "Flux Train Save Model",
-    "ExtractFluxLoRA": "Extract Flux LoRA",
-    "OptimizerConfigProdigy": "Optimizer Config Prodigy",
-    "FluxTrainResume": "Flux Train Resume",
-    "FluxTrainBlockSelect": "Flux Train Block Select",
-    "TrainDatasetRegularization": "Train Dataset Regularization",
-    "FluxTrainAndValidateLoop": "Flux Train And Validate Loop",
-    "OptimizerConfigProdigyPlusScheduleFree": "Optimizer Config ProdigyPlusScheduleFree",
-    "FluxTrainerLossConfig": "Flux Trainer Loss Config",
-    "TrainNetworkConfig": "Train Network Config",
+    "InitFluxLoRATraining": "Init Flux LoRA Training" if IMPORTS_OK else "⚠️ Init Flux LoRA (Error)",
+    "InitFluxTraining": "Init Flux Training" if IMPORTS_OK else "⚠️ Init Flux Training (Error)",
+    "FluxTrainModelSelect": "FluxTrain ModelSelect" if IMPORTS_OK else "⚠️ Model Select (Error)",
+    "TrainDatasetGeneralConfig": "TrainDatasetGeneralConfig" if IMPORTS_OK else "⚠️ Dataset Config (Error)",
+    "TrainDatasetAdd": "TrainDatasetAdd" if IMPORTS_OK else "⚠️ Dataset Add (Error)",
+    "FluxTrainLoop": "Flux Train Loop" if IMPORTS_OK else "⚠️ Train Loop (Error)",
+    "VisualizeLoss": "Visualize Loss" if IMPORTS_OK else "⚠️ Visualize Loss (Error)",
+    "FluxTrainValidate": "Flux Train Validate" if IMPORTS_OK else "⚠️ Validate (Error)",
+    "FluxTrainValidationSettings": "Flux Train Validation Settings" if IMPORTS_OK else "⚠️ Val Settings (Error)",
+    "FluxTrainEnd": "Flux LoRA Train End" if IMPORTS_OK else "⚠️ Train End (Error)",
+    "FluxTrainSave": "Flux Train Save LoRA" if IMPORTS_OK else "⚠️ Train Save (Error)",
+    "FluxKohyaInferenceSampler": "Flux Kohya Inference Sampler" if IMPORTS_OK else "⚠️ Inference Sampler (Error)",
+    "UploadToHuggingFace": "Upload To HuggingFace" if IMPORTS_OK else "⚠️ Upload HF (Error)",
+    "OptimizerConfig": "Optimizer Config" if IMPORTS_OK else "⚠️ Optimizer Config (Error)",
+    "OptimizerConfigAdafactor": "Optimizer Config Adafactor" if IMPORTS_OK else "⚠️ Opt Adafactor (Error)",
+    "FluxTrainSaveModel": "Flux Train Save Model" if IMPORTS_OK else "⚠️ Save Model (Error)",
+    "ExtractFluxLoRA": "Extract Flux LoRA" if IMPORTS_OK else "⚠️ Extract LoRA (Error)",
+    "OptimizerConfigProdigy": "Optimizer Config Prodigy" if IMPORTS_OK else "⚠️ Opt Prodigy (Error)",
+    "FluxTrainResume": "Flux Train Resume" if IMPORTS_OK else "⚠️ Train Resume (Error)",
+    "FluxTrainBlockSelect": "Flux Train Block Select" if IMPORTS_OK else "⚠️ Block Select (Error)",
+    "TrainDatasetRegularization": "Train Dataset Regularization" if IMPORTS_OK else "⚠️ Dataset Reg (Error)",
+    "FluxTrainAndValidateLoop": "Flux Train And Validate Loop" if IMPORTS_OK else "⚠️ Train & Val Loop (Error)",
+    "OptimizerConfigProdigyPlusScheduleFree": "Optimizer Config ProdigyPlusScheduleFree" if IMPORTS_OK else "⚠️ Opt Prodigy+ (Error)",
+    "FluxTrainerLossConfig": "Flux Trainer Loss Config" if IMPORTS_OK else "⚠️ Loss Config (Error)",
+    "TrainNetworkConfig": "Train Network Config" if IMPORTS_OK else "⚠️ Net Config (Error)",
 }

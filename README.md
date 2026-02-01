@@ -58,6 +58,8 @@ cd ComfyUI/custom_nodes
 git clone https://github.com/nkVas1/ComfyUI-FluxTrainer-Pro.git
 cd ComfyUI-FluxTrainer-Pro
 pip install -r requirements.txt
+# OR run the provided helper:
+python install.py
 ```
 
 #### Method 3: Portable Windows
@@ -126,6 +128,8 @@ cd ComfyUI/custom_nodes
 git clone https://github.com/nkVas1/ComfyUI-FluxTrainer-Pro.git
 cd ComfyUI-FluxTrainer-Pro
 pip install -r requirements.txt
+# ИЛИ запустите помощника установки:
+python install.py
 ```
 
 ### 🚀 Быстрый старт для 8GB GPU

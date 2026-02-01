@@ -36,10 +36,23 @@ import folder_paths
 import comfy.model_management as mm
 import comfy.utils
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import io
+# --- Safe Imports ---
+IMPORTS_OK = True
+IMPORT_ERROR_MSG = ""
+try:
+    import torch
+    import numpy as np
+    from PIL import Image
+    from torchvision import transforms
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import io
+except Exception as e:
+    IMPORTS_OK = False
+    IMPORT_ERROR_MSG = str(e)
+    print(f"\n[ComfyUI-FluxTrainer-Pro] ❌ Critical Import Error (Extended Nodes): {e}")
+# --------------------
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -887,35 +900,49 @@ class PresetManager:
 # =============================================================================
 # NODE MAPPINGS
 # =============================================================================
+if IMPORTS_OK:
+    NODE_CLASS_MAPPINGS = {
+        # Dataset utilities
+        "DatasetPreviewGrid": DatasetPreviewGrid,
+        "DatasetValidator": DatasetValidator,
+        
+        # Training progress
+        "TrainingProgressDisplay": TrainingProgressDisplay,
+        "MemoryMonitorDisplay": MemoryMonitorDisplay,
+        "LossGraphAdvanced": LossGraphAdvanced,
+        
+        # Model utilities
+        "LoRAMerger": LoRAMerger,
+        "CheckpointManager": CheckpointManager,
+        "PresetManager": PresetManager,
+    }
+else:
+    class DependencyErrorNodeExtended:
+        @classmethod
+        def INPUT_TYPES(s): return {"required": {}}
+        RETURN_TYPES = ()
+        FUNCTION = "error"
+        CATEGORY = "FluxTrainer/Utilities"
+        def error(self): raise ImportError(f"Missing dependencies: {IMPORT_ERROR_MSG}")
 
-NODE_CLASS_MAPPINGS = {
-    # Dataset utilities
-    "DatasetPreviewGrid": DatasetPreviewGrid,
-    "DatasetValidator": DatasetValidator,
-    
-    # Training progress
-    "TrainingProgressDisplay": TrainingProgressDisplay,
-    "MemoryMonitorDisplay": MemoryMonitorDisplay,
-    "LossGraphAdvanced": LossGraphAdvanced,
-    
-    # Model utilities
-    "LoRAMerger": LoRAMerger,
-    "CheckpointManager": CheckpointManager,
-    "PresetManager": PresetManager,
-}
+    NODE_CLASS_MAPPINGS = {k: DependencyErrorNodeExtended for k in [
+         "DatasetPreviewGrid", "DatasetValidator", "TrainingProgressDisplay", 
+         "MemoryMonitorDisplay", "LossGraphAdvanced", "LoRAMerger", 
+         "CheckpointManager", "PresetManager"
+    ]}
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     # Dataset utilities
-    "DatasetPreviewGrid": "📸 Dataset Preview Grid",
-    "DatasetValidator": "✅ Dataset Validator",
+    "DatasetPreviewGrid": "📸 Dataset Preview Grid" if IMPORTS_OK else "⚠️ Dataset Preview (Error)",
+    "DatasetValidator": "✅ Dataset Validator" if IMPORTS_OK else "⚠️ Dataset Validator (Error)",
     
     # Training progress  
-    "TrainingProgressDisplay": "📊 Training Progress",
-    "MemoryMonitorDisplay": "💾 Memory Monitor",
-    "LossGraphAdvanced": "📈 Advanced Loss Graph",
+    "TrainingProgressDisplay": "📊 Training Progress" if IMPORTS_OK else "⚠️ Training Progress (Error)",
+    "MemoryMonitorDisplay": "💾 Memory Monitor" if IMPORTS_OK else "⚠️ Memory Monitor (Error)",
+    "LossGraphAdvanced": "📈 Advanced Loss Graph" if IMPORTS_OK else "⚠️ Loss Graph (Error)",
     
     # Model utilities
-    "LoRAMerger": "🔀 LoRA Merger",
-    "CheckpointManager": "📁 Checkpoint Manager",
-    "PresetManager": "⚙️ Preset Manager",
+    "LoRAMerger": "🔀 LoRA Merger" if IMPORTS_OK else "⚠️ LoRA Merger (Error)",
+    "CheckpointManager": "📁 Checkpoint Manager" if IMPORTS_OK else "⚠️ Checkpoint Manager (Error)",
+    "PresetManager": "⚙️ Preset Manager" if IMPORTS_OK else "⚠️ Preset Manager (Error)",
 }

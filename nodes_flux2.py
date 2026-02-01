@@ -31,21 +31,32 @@ import folder_paths
 import comfy.model_management as mm
 import comfy.utils
 
-from .flux_train_network_comfy import FluxNetworkTrainer
-from .train_network import setup_parser as train_network_setup_parser
-from .library import flux_train_utils, flux_utils, train_util
-from .library.low_vram_utils import (
-    LowVRAMConfig, 
-    OffloadStrategy, 
-    get_optimal_config_for_vram,
-    aggressive_memory_cleanup
-)
-from .library.device_utils import init_ipex, clean_memory_on_device
-init_ipex()
+# --- Safe Imports ---
+IMPORTS_OK = True
+IMPORT_ERROR_MSG = ""
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+try:
+    from .flux_train_network_comfy import FluxNetworkTrainer
+    from .train_network import setup_parser as train_network_setup_parser
+    from .library import flux_train_utils, flux_utils, train_util
+    from .library.low_vram_utils import (
+        LowVRAMConfig, 
+        OffloadStrategy, 
+        get_optimal_config_for_vram,
+        aggressive_memory_cleanup
+    )
+    from .library.device_utils import init_ipex, clean_memory_on_device
+    init_ipex()
+
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+except Exception as e:
+    IMPORTS_OK = False
+    IMPORT_ERROR_MSG = str(e)
+    print(f"\n[ComfyUI-FluxTrainer-Pro] ❌ Critical Import Error: {e}")
+    print("[ComfyUI-FluxTrainer-Pro] Check requirements.txt and installed packages.\n")
+# --------------------
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -912,26 +923,41 @@ class Flux2MemoryEstimator:
 # =============================================================================
 # NODE MAPPINGS
 # =============================================================================
-NODE_CLASS_MAPPINGS = {
-    "Flux2TrainModelSelect": Flux2TrainModelSelect,
-    "Flux2LowVRAMConfig": Flux2LowVRAMConfig,
-    "Flux2InitTraining": Flux2InitTraining,
-    "Flux2TrainLoop": Flux2TrainLoop,
-    "Flux2TrainAndValidateLoop": Flux2TrainAndValidateLoop,
-    "Flux2TrainSave": Flux2TrainSave,
-    "Flux2TrainEnd": Flux2TrainEnd,
-    "Flux2TrainAdvancedSettings": Flux2TrainAdvancedSettings,
-    "Flux2MemoryEstimator": Flux2MemoryEstimator,
-}
+if IMPORTS_OK:
+    NODE_CLASS_MAPPINGS = {
+        "Flux2TrainModelSelect": Flux2TrainModelSelect,
+        "Flux2LowVRAMConfig": Flux2LowVRAMConfig,
+        "Flux2InitTraining": Flux2InitTraining,
+        "Flux2TrainLoop": Flux2TrainLoop,
+        "Flux2TrainAndValidateLoop": Flux2TrainAndValidateLoop,
+        "Flux2TrainSave": Flux2TrainSave,
+        "Flux2TrainEnd": Flux2TrainEnd,
+        "Flux2TrainAdvancedSettings": Flux2TrainAdvancedSettings,
+        "Flux2MemoryEstimator": Flux2MemoryEstimator,
+    }
+else:
+    class DependencyErrorNode:
+        @classmethod
+        def INPUT_TYPES(s): return {"required": {}}
+        RETURN_TYPES = ()
+        FUNCTION = "error"
+        CATEGORY = "FluxTrainer/Flux2"
+        def error(self): raise ImportError(f"Missing dependencies: {IMPORT_ERROR_MSG}")
+    
+    NODE_CLASS_MAPPINGS = {k: DependencyErrorNode for k in [
+        "Flux2TrainModelSelect", "Flux2LowVRAMConfig", "Flux2InitTraining", 
+        "Flux2TrainLoop", "Flux2TrainAndValidateLoop", "Flux2TrainSave", 
+        "Flux2TrainEnd", "Flux2TrainAdvancedSettings", "Flux2MemoryEstimator"
+    ]}
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "Flux2TrainModelSelect": "Flux.2 Model Select",
-    "Flux2LowVRAMConfig": "Flux.2 Low VRAM Config",
-    "Flux2InitTraining": "Flux.2 Init Training",
-    "Flux2TrainLoop": "Flux.2 Train Loop",
-    "Flux2TrainAndValidateLoop": "Flux.2 Train & Validate",
-    "Flux2TrainSave": "Flux.2 Save LoRA",
-    "Flux2TrainEnd": "Flux.2 End Training",
-    "Flux2TrainAdvancedSettings": "Flux.2 Advanced Settings",
-    "Flux2MemoryEstimator": "Flux.2 Memory Estimator",
+    "Flux2TrainModelSelect": "Flux.2 Model Select" if IMPORTS_OK else "⚠️ Flux.2 Model Select (Error)",
+    "Flux2LowVRAMConfig": "Flux.2 Low VRAM Config" if IMPORTS_OK else "⚠️ Flux.2 Low VRAM Config (Error)",
+    "Flux2InitTraining": "Flux.2 Init Training" if IMPORTS_OK else "⚠️ Flux.2 Init Training (Error)",
+    "Flux2TrainLoop": "Flux.2 Train Loop" if IMPORTS_OK else "⚠️ Flux.2 Train Loop (Error)",
+    "Flux2TrainAndValidateLoop": "Flux.2 Train & Validate" if IMPORTS_OK else "⚠️ Flux.2 Train & Validate (Error)",
+    "Flux2TrainSave": "Flux.2 Save LoRA" if IMPORTS_OK else "⚠️ Flux.2 Save LoRA (Error)",
+    "Flux2TrainEnd": "Flux.2 End Training" if IMPORTS_OK else "⚠️ Flux.2 End Training (Error)",
+    "Flux2TrainAdvancedSettings": "Flux.2 Advanced Settings" if IMPORTS_OK else "⚠️ Flux.2 Advanced Settings (Error)",
+    "Flux2MemoryEstimator": "Flux.2 Memory Estimator" if IMPORTS_OK else "⚠️ Flux.2 Memory Estimator (Error)",
 }
