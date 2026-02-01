@@ -361,14 +361,31 @@ class OptimizerConfig:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "optimizer_type": (["adamw8bit", "adamw","prodigy", "CAME", "Lion8bit", "Lion", "adamwschedulefree", "sgdschedulefree", "AdEMAMix8bit", "PagedAdEMAMix8bit", "ProdigyPlusScheduleFree"], {"default": "adamw8bit", "tooltip": "optimizer type"}),
+            # Adafactor первым и дефолтом - не требует bitsandbytes!
+            "optimizer_type": ([
+                "adafactor",  # ✅ Recommended: pure PyTorch, no compilation needed
+                "adamw8bit",  # Requires bitsandbytes  
+                "adamw",
+                "prodigy", 
+                "CAME", 
+                "Lion8bit",  # Requires bitsandbytes
+                "Lion", 
+                "adamwschedulefree", 
+                "sgdschedulefree", 
+                "AdEMAMix8bit",  # Requires bitsandbytes
+                "PagedAdEMAMix8bit",  # Requires bitsandbytes
+                "ProdigyPlusScheduleFree"
+            ], {
+                "default": "adafactor", 
+                "tooltip": "Optimizer type. Adafactor recommended for Windows - no bitsandbytes needed!"
+            }),
             "max_grad_norm": ("FLOAT",{"default": 1.0, "min": 0.0, "tooltip": "gradient clipping"}),
-            "lr_scheduler": (["constant", "cosine", "cosine_with_restarts", "polynomial", "constant_with_warmup"], {"default": "constant", "tooltip": "learning rate scheduler"}),
-            "lr_warmup_steps": ("INT",{"default": 0, "min": 0, "tooltip": "learning rate warmup steps"}),
+            "lr_scheduler": (["constant", "cosine", "cosine_with_restarts", "polynomial", "constant_with_warmup", "adafactor"], {"default": "constant_with_warmup", "tooltip": "learning rate scheduler"}),
+            "lr_warmup_steps": ("INT",{"default": 100, "min": 0, "tooltip": "learning rate warmup steps"}),
             "lr_scheduler_num_cycles": ("INT",{"default": 1, "min": 1, "tooltip": "learning rate scheduler num cycles"}),
             "lr_scheduler_power": ("FLOAT",{"default": 1.0, "min": 0.0, "tooltip": "learning rate scheduler power"}),
             "min_snr_gamma": ("FLOAT",{"default": 5.0, "min": 0.0, "step": 0.01, "tooltip": "gamma for reducing the weight of high loss timesteps. Lower numbers have stronger effect. 5 is recommended by the paper"}),
-            "extra_optimizer_args": ("STRING",{"multiline": True, "default": "", "tooltip": "additional optimizer args"}),
+            "extra_optimizer_args": ("STRING",{"multiline": True, "default": "", "tooltip": "additional optimizer args (separated by |)"}),
            },
         }
 
@@ -379,7 +396,25 @@ class OptimizerConfig:
 
     def create_config(self, min_snr_gamma, extra_optimizer_args, **kwargs):
         kwargs["min_snr_gamma"] = min_snr_gamma if min_snr_gamma != 0.0 else None
-        kwargs["optimizer_args"] = [arg.strip() for arg in extra_optimizer_args.strip().split('|') if arg.strip()]
+        
+        # Парсим дополнительные аргументы
+        extra_args = [arg.strip() for arg in extra_optimizer_args.strip().split('|') if arg.strip()]
+        
+        # Если выбран adafactor, добавляем рекомендуемые параметры
+        if kwargs.get("optimizer_type") == "adafactor":
+            adafactor_defaults = [
+                "scale_parameter=False",
+                "relative_step=False", 
+                "warmup_init=False"
+            ]
+            # Добавляем дефолты если пользователь не переопределил
+            existing_keys = {arg.split('=')[0] for arg in extra_args if '=' in arg}
+            for default in adafactor_defaults:
+                key = default.split('=')[0]
+                if key not in existing_keys:
+                    extra_args.append(default)
+        
+        kwargs["optimizer_args"] = extra_args
         return (kwargs,)
 
 class OptimizerConfigAdafactor:

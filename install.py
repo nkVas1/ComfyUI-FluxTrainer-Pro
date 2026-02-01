@@ -30,17 +30,22 @@ from pathlib import Path
 # =============================================================================
 SCRIPT_DIR = Path(__file__).parent
 
-# Репозитории с pre-built wheels для Windows
-TRITON_WHEELS = {
-    # Python 3.10
+# Репозитории с pre-built wheels для Windows (в порядке приоритета)
+# Источник 1: woct0rdho - более новая версия 3.1.0
+TRITON_WHEELS_PRIMARY = {
     (3, 10): "https://github.com/woct0rdho/triton-windows/releases/download/v3.1.0-windows.post8/triton-3.1.0-cp310-cp310-win_amd64.whl",
-    # Python 3.11
     (3, 11): "https://github.com/woct0rdho/triton-windows/releases/download/v3.1.0-windows.post8/triton-3.1.0-cp311-cp311-win_amd64.whl",
-    # Python 3.12
     (3, 12): "https://github.com/woct0rdho/triton-windows/releases/download/v3.1.0-windows.post8/triton-3.1.0-cp312-cp312-win_amd64.whl",
 }
 
-# Bitsandbytes для Windows - используем официальный пакет с pre-built binaries
+# Источник 2: Akiya-Research - стабильная версия 3.0.0 (fallback)
+TRITON_WHEELS_FALLBACK = {
+    (3, 10): "https://github.com/Akiya-Research/Triton-Windows/releases/download/v3.0.0/triton-3.0.0-cp310-cp310-win_amd64.whl",
+    (3, 11): "https://github.com/Akiya-Research/Triton-Windows/releases/download/v3.0.0/triton-3.0.0-cp311-cp311-win_amd64.whl",
+    (3, 12): "https://github.com/Akiya-Research/Triton-Windows/releases/download/v3.0.0/triton-3.0.0-cp312-cp312-win_amd64.whl",
+}
+
+# Bitsandbytes для Windows - используем jllllll fork (стандарт де-факто для ComfyUI)
 BNB_WINDOWS_INDEX = "https://jllllll.github.io/bitsandbytes-windows-webui"
 
 
@@ -165,33 +170,51 @@ def install_basic_requirements():
 
 
 def install_triton_windows():
-    """Устанавливает pre-built Triton для Windows."""
+    """Устанавливает pre-built Triton для Windows с fallback источниками."""
     print_info("Checking Triton for Windows...")
     
     py_ver = (sys.version_info.major, sys.version_info.minor)
     
     if is_installed("triton"):
         version = get_package_version("triton")
-        print_success(f"Triton already installed (v{version})")
-        return True
+        # Проверим, что triton реально работает
+        try:
+            import triton
+            print_success(f"Triton already installed and working (v{version})")
+            return True
+        except ImportError as e:
+            print_warning(f"Triton installed but broken: {e}")
+            print_info("Uninstalling broken triton...")
+            try:
+                run_pip("uninstall", "-y", "triton")
+            except:
+                pass
     
-    if py_ver not in TRITON_WHEELS:
-        print_warning(f"No pre-built Triton wheel for Python {py_ver[0]}.{py_ver[1]}")
-        print_info("Triton may not be available. Some optimizers might not work.")
-        return False
+    # Пробуем основной источник (woct0rdho - v3.1.0)
+    wheel_url = TRITON_WHEELS_PRIMARY.get(py_ver)
+    if wheel_url:
+        print_info(f"Installing Triton v3.1.0 from woct0rdho...")
+        try:
+            run_pip("install", wheel_url)
+            print_success("Triton v3.1.0 installed successfully!")
+            return True
+        except subprocess.CalledProcessError as e:
+            print_warning(f"Primary source failed: {e}")
     
-    wheel_url = TRITON_WHEELS[py_ver]
-    print_info(f"Installing Triton from pre-built wheel...")
-    print_info(f"URL: {wheel_url}")
+    # Fallback на Akiya-Research (v3.0.0)
+    wheel_url = TRITON_WHEELS_FALLBACK.get(py_ver)
+    if wheel_url:
+        print_info(f"Trying fallback: Triton v3.0.0 from Akiya-Research...")
+        try:
+            run_pip("install", wheel_url)
+            print_success("Triton v3.0.0 installed successfully!")
+            return True
+        except subprocess.CalledProcessError as e:
+            print_warning(f"Fallback source also failed: {e}")
     
-    try:
-        run_pip("install", wheel_url)
-        print_success("Triton installed successfully!")
-        return True
-    except subprocess.CalledProcessError as e:
-        print_error(f"Failed to install Triton: {e}")
-        print_warning("Some advanced optimizers (8-bit Adam, etc.) may not work.")
-        return False
+    print_warning(f"No working Triton wheel for Python {py_ver[0]}.{py_ver[1]}")
+    print_info("💡 TIP: Use Adafactor optimizer - it doesn't require Triton!")
+    return False
 
 
 def install_bitsandbytes_windows():

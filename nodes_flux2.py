@@ -71,6 +71,33 @@ def _lazy_import_training():
     if "FluxNetworkTrainer" in _CACHED_MODULES:
         return _CACHED_MODULES
     
+    # =======================================================================
+    # WINDOWS TRITON PATH FIX - Помогает Triton находить свои библиотеки
+    # =======================================================================
+    if sys.platform == 'win32':
+        python_home = os.path.dirname(sys.executable)
+        
+        # Добавляем путь к include для Triton
+        include_path = os.path.join(python_home, 'include')
+        if os.path.exists(include_path):
+            os.environ.setdefault('INCLUDE', include_path)
+        
+        # Путь к ptxas.exe для CUDA компиляции (если есть)
+        ptxas_candidates = [
+            os.path.join(python_home, 'Library', 'bin', 'ptxas.exe'),
+            os.path.join(os.environ.get('CUDA_PATH', ''), 'bin', 'ptxas.exe'),
+        ]
+        for ptxas_path in ptxas_candidates:
+            if os.path.exists(ptxas_path):
+                os.environ['TRITON_PTXAS_PATH'] = ptxas_path
+                break
+        
+        # Отключаем JIT компиляцию Triton если нет компилятора
+        # Это предотвращает ошибку Python.h not found
+        if not os.path.exists(os.path.join(python_home, 'include', 'Python.h')):
+            os.environ.setdefault('TRITON_DISABLE_LINE_INFO', '1')
+            logger.info("[Flux2] Windows Embedded Python detected - Triton JIT disabled")
+    
     try:
         import toml
         import torch
@@ -564,6 +591,14 @@ class Flux2InitTraining:
                 "low_vram_config": ("FLUX2_LOW_VRAM_CONFIG", {
                     "tooltip": "Low VRAM configuration from Flux2LowVRAMConfig node"
                 }),
+                "weighting_scheme": (["logit_normal", "sigma_sqrt", "mode", "cosmap", "none"], {
+                    "default": "logit_normal",
+                    "tooltip": "Timestep weighting scheme. logit_normal recommended for Flux"
+                }),
+                "timestep_sampling": (["sigmoid", "uniform", "shift"], {
+                    "default": "sigmoid",
+                    "tooltip": "Timestep sampling method. sigmoid recommended for Flux"
+                }),
                 "auto_resume": ("BOOLEAN", {
                     "default": True,
                     "tooltip": "Automatically resume from latest checkpoint if found in output_dir"
@@ -606,6 +641,8 @@ class Flux2InitTraining:
         optimizer_fusing,
         sample_prompts,
         low_vram_config=None,
+        weighting_scheme="logit_normal",
+        timestep_sampling="sigmoid",
         auto_resume=True,
         check_vram=True,
         additional_args=None,
@@ -628,6 +665,22 @@ class Flux2InitTraining:
         get_training_progress = modules["get_training_progress"]
         
         mm.soft_empty_cache()
+        
+        # ===================================================================
+        # VALIDATION - Проверяем параметры LoRA для предотвращения "garbage LoRA"
+        # ===================================================================
+        # Правило: network_alpha должен быть <= network_dim
+        # Если alpha > dim, веса "взрываются" и LoRA получается битой
+        if network_alpha > network_dim:
+            logger.warning(
+                f"⚠️ network_alpha ({network_alpha}) > network_dim ({network_dim})! "
+                f"Это может привести к нестабильному обучению. "
+                f"Автоматически устанавливаю network_alpha = {network_dim}"
+            )
+            network_alpha = float(network_dim)
+        
+        # Проверка network_type
+        is_dora = network_type.lower() == "dora"
         
         # Создаём конфиг по умолчанию если не передан
         if low_vram_config is None:
@@ -722,9 +775,17 @@ class Flux2InitTraining:
             prompts_list = [sample_prompts.strip()]
         
         # Формируем конфигурацию
-        # Определяем тип сети (LoRA или DoRA)
-        is_dora = network_type == "dora"
         network_suffix = "dora" if is_dora else "lora"
+        
+        # Network args для LoRA/DoRA и Flux-specific настройки
+        network_args_dict = {}
+        if is_dora:
+            # DoRA: Weight-Decomposed Low-Rank Adaptation
+            # Добавляет decomposed weight magnitude для лучшего качества
+            network_args_dict["dora_wd"] = True
+        
+        # Flux-specific: train_on_input улучшает качество на некоторых моделях
+        # Опционально можно добавить через additional_args
         
         config_dict = {
             # Модели
@@ -737,9 +798,7 @@ class Flux2InitTraining:
             "network_module": ".networks.lora_flux",
             "network_dim": network_dim,
             "network_alpha": network_alpha,
-            # DoRA: Weight-Decomposed Low-Rank Adaptation
-            # Добавляет decomposed weight magnitude для лучшего качества
-            "network_args": {"dora_wd": True} if is_dora else None,
+            "network_args": network_args_dict if network_args_dict else None,
             
             # Training
             "learning_rate": learning_rate,
@@ -790,17 +849,17 @@ class Flux2InitTraining:
             "xformers": False,
             "sdpa": True,
             
-            # Flux-specific
+            # Flux-specific - используем параметры из INPUT
             "t5xxl_max_token_length": 512,
             "apply_t5_attn_mask": True,
-            "weighting_scheme": "logit_normal",
+            "weighting_scheme": weighting_scheme,
             "logit_mean": 0.0,
             "logit_std": 1.0,
             "mode_scale": 1.29,
             "guidance_scale": 1.0,
             "discrete_flow_shift": 1.0,
             "loss_type": "l2",
-            "timestep_sampling": "sigmoid",
+            "timestep_sampling": timestep_sampling,
             "sigmoid_scale": 1.0,
             "model_prediction_type": "raw",
             "alpha_mask": dataset.get("alpha_mask", False),
