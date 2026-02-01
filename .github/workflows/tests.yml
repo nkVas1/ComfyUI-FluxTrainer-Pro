@@ -1,0 +1,83 @@
+name: Tests & Quality
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11']
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run tests with pytest
+      run: |
+        pytest backend/tests/ -v --cov=backend/app --cov-report=xml --cov-report=html
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+    
+    - name: Lint with flake8
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 backend/app --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings
+        flake8 backend/app --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Check types with mypy
+      run: |
+        mypy backend/app --ignore-missing-imports --no-error-summary || true
+    
+    - name: Format check with black
+      run: |
+        black --check backend/app || true
+
+  build:
+    runs-on: windows-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Build EXE with PyInstaller
+      run: |
+        python build_exe_v2.py
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      if: success()
+      with:
+        name: PANDORA_v2.0
+        path: PANDORA_v2.0.exe
+        retention-days: 30

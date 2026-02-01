@@ -1,84 +1,177 @@
-# ComfyUI Flux Trainer
+# 🚀 ComfyUI-FluxTrainer-Pro
 
-Wrapper for slightly modified kohya's training scripts: https://github.com/kohya-ss/sd-scripts
+<div align="center">
 
-Including code from: https://github.com/KohakuBlueleaf/Lycoris
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE.md)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-green.svg)](https://python.org)
+[![ComfyUI](https://img.shields.io/badge/ComfyUI-Compatible-orange.svg)](https://github.com/comfyanonymous/ComfyUI)
+[![Flux.2](https://img.shields.io/badge/Flux.2-Supported-purple.svg)](https://blackforestlabs.ai)
 
-And https://github.com/LoganBooker/prodigy-plus-schedule-free
+**Professional Flux & Flux.2 LoRA Training for ComfyUI**
 
----
+*Fork of [kijai/ComfyUI-FluxTrainer](https://github.com/kijai/ComfyUI-FluxTrainer) with extended Flux.2 support and low VRAM optimization*
 
-## 🆕 Flux.2 Support (NEW!)
+[English](#english) | [Русский](#русский)
 
-This extension now supports **Flux.2** models with aggressive low VRAM optimizations:
-- **Flux.2 Klein 9B Base** — 9 billion parameters, runs on consumer GPUs (8GB+)
-- **Flux.2 Dev** — 32 billion parameters, full capacity model
-
-### Low VRAM Features
-- Block swapping (CPU ↔ GPU)
-- Gradient checkpointing with CPU offload
-- Optimizer state offloading to RAM
-- Automatic strategy selection based on VRAM
-
-**See [docs/FLUX2_TRAINING_GUIDE.md](docs/FLUX2_TRAINING_GUIDE.md) for detailed instructions.**
-
-### Quick Start for 8GB GPU
-
-1. Use **Flux.2 Model Select** node
-2. Add **Flux.2 Low VRAM Config** with `strategy=aggressive`
-3. Set `blocks_to_swap=25`, `network_dim=16`
-4. Enable all offloading options
-5. Use batch_size=1 with gradient_accumulation=8
+</div>
 
 ---
 
-## DISCLAIMER:
-I have **very** little previous experience in training anything, Flux is basically first model I've been inspired to learn. Previously I've only trained AnimateDiff Motion Loras, and built similar training nodes for it.
+<a name="english"></a>
+## 🇬🇧 English
 
-## DO NOT ASK ME FOR TRAINING ADVICE
-I can not emphasize this enough, this repository is not for raising questions related to the training itself, that would be better done to kohya's repo. Even so keep in mind my implementation may have mistakes.
+### ✨ Features
 
-The default settings aren't necessarily any good, they are just the last (out of many) I've tried and worked for my dataset.
+#### 🆕 Flux.2 Support
+- **Flux.2 Klein 9B Base** — 9 billion parameters, consumer GPU friendly
+- **Flux.2 Dev** — Full 32 billion parameter model
+- Auto-detection of model type from checkpoint
 
-# THIS IS EXPERIMENTAL
-Both these nodes and the underlaying implementation by kohya is work in progress and expected to change. 
+#### 💾 Low VRAM Optimization (8GB+)
+- **Block Swapping** — Dynamic GPU↔CPU offloading (up to 35 blocks)
+- **Gradient Checkpointing** — With optional CPU offload
+- **Optimizer Offloading** — Keep optimizer states in RAM
+- **FP8 Loading** — 50% VRAM reduction for base model
+- **Auto Strategy** — Automatic optimization based on available VRAM
 
-# Installation
-1. Clone this repo into `custom_nodes` folder.
-2. Install dependencies: `pip install -r requirements.txt`
-   or if you use the portable install, run this in ComfyUI_windows_portable -folder:
+#### 🎛️ Extended Nodes
+| Category | Nodes |
+|----------|-------|
+| **Model Selection** | FluxTrainModelSelect, Flux2TrainModelSelect |
+| **Dataset** | TrainDatasetGeneralConfig, TrainDatasetAdd, TrainDatasetRegularization |
+| **Optimizer** | OptimizerConfig, OptimizerConfigAdafactor, OptimizerConfigProdigy |
+| **Training** | InitFluxLoRATraining, FluxTrainLoop, FluxTrainAndValidateLoop |
+| **Save/Load** | FluxTrainSave, FluxTrainSaveModel, FluxTrainResume |
+| **Validation** | FluxTrainValidate, FluxTrainValidationSettings |
+| **Utilities** | VisualizeLoss, ExtractFluxLoRA, UploadToHuggingFace |
+| **Flux.2 Specific** | Flux2LowVRAMConfig, Flux2OptimizerConfig, Flux2LoRAConfig |
+| **Memory** | Flux2MemoryMonitor |
 
-  `python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-FluxTrainer\requirements.txt`
+### 📦 Installation
 
-In addition torch version 2.4.0 or higher is highly recommended.
+#### Method 1: ComfyUI Manager (Recommended)
+Search for "FluxTrainer-Pro" in ComfyUI Manager.
 
-Example workflow for LoRA training can be found in the examples folder, it utilizes additional nodes from:
+#### Method 2: Manual
+```bash
+cd ComfyUI/custom_nodes
+git clone https://github.com/nkVas1/ComfyUI-FluxTrainer-Pro.git
+cd ComfyUI-FluxTrainer-Pro
+pip install -r requirements.txt
+```
 
-https://github.com/kijai/ComfyUI-KJNodes
+#### Method 3: Portable Windows
+```bash
+cd ComfyUI_windows_portable
+python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-FluxTrainer-Pro\requirements.txt
+```
 
-And some (optional) debugging nodes from:
+### 🚀 Quick Start
 
-https://github.com/rgthree/rgthree-comfy
+#### For Standard Flux Training
+1. Use **FluxTrain ModelSelect** node
+2. Add **TrainDatasetGeneralConfig** → **TrainDatasetAdd**
+3. Choose optimizer with **OptimizerConfig**
+4. Initialize with **Init Flux LoRA Training**
+5. Connect to **Flux Train Loop** → **Flux Train Save**
 
-For LoRA training the models need to be the normal fp8 or fp16 versions, also make sure the VAE is the non-diffusers version:
+#### For Flux.2 on 8GB GPU
+1. Use **Flux2 Model Select** node
+2. Add **Flux2 Low VRAM Config** with:
+   - `strategy`: aggressive
+   - `blocks_to_swap`: 25
+   - Enable all offloading options
+3. Use **Flux2 Optimizer Config** with:
+   - `optimizer_type`: adamw8bit
+   - `cpu_offload_optimizer`: true
+4. Set batch_size=1, gradient_accumulation=8
 
-https://huggingface.co/black-forest-labs/FLUX.1-dev/blob/main/ae.safetensors
+### 📊 VRAM Requirements
 
-For Flux.2 models:
-- https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B
-- https://huggingface.co/black-forest-labs/FLUX.2-dev
+| Model | Min VRAM | Recommended | Config |
+|-------|----------|-------------|--------|
+| Flux.1 | 12GB | 16GB+ | Standard |
+| Flux.2 Klein 9B | 8GB | 12GB+ | aggressive + 25 blocks |
+| Flux.2 Dev | 12GB | 24GB+ | conservative |
 
-For full model training the fp16 version of the main model needs to be used.
+### 📚 Documentation
 
-## Why train in ComfyUI?
-- Familiar UI (obviously only if you are a Comfy user already)
-- You can use same models you use for inference
-- You can use same python environment, I faced no incompabilities
-- You can build workflows to compare settings etc.
+- [FLUX2_TRAINING_GUIDE.md](docs/FLUX2_TRAINING_GUIDE.md) — Complete Flux.2 training guide
+- [CHANGELOG.md](CHANGELOG.md) — Version history
+- [CREDITS.md](CREDITS.md) — Attribution and credits
 
-Currently supports LoRA training, and untested full finetune with code from kohya's scripts: https://github.com/kohya-ss/sd-scripts
+---
 
-Experimental support for LyCORIS training has been added as well, using code from: https://github.com/KohakuBlueleaf/Lycoris
+<a name="русский"></a>
+## 🇷🇺 Русский
 
-![Screenshot 2024-08-21 020207](https://github.com/user-attachments/assets/1686b180-90c8-41d0-8c96-63e76ebc2475)
+### ✨ Возможности
+
+#### 🆕 Поддержка Flux.2
+- **Flux.2 Klein 9B Base** — 9 миллиардов параметров, для потребительских GPU
+- **Flux.2 Dev** — Полная модель с 32 миллиардами параметров
+- Автоопределение типа модели из чекпоинта
+
+#### 💾 Оптимизация для низкого VRAM (8GB+)
+- **Block Swapping** — Динамическая выгрузка GPU↔CPU (до 35 блоков)
+- **Gradient Checkpointing** — С опциональной выгрузкой на CPU
+- **Optimizer Offloading** — Хранение состояния оптимизатора в RAM
+- **FP8 Loading** — 50% экономия VRAM для базовой модели
+- **Auto Strategy** — Автоматическая оптимизация по доступному VRAM
+
+### 📦 Установка
+
+```bash
+cd ComfyUI/custom_nodes
+git clone https://github.com/nkVas1/ComfyUI-FluxTrainer-Pro.git
+cd ComfyUI-FluxTrainer-Pro
+pip install -r requirements.txt
+```
+
+### 🚀 Быстрый старт для 8GB GPU
+
+1. Используйте ноду **Flux2 Model Select**
+2. Добавьте **Flux2 Low VRAM Config**:
+   - `strategy`: aggressive
+   - `blocks_to_swap`: 25
+   - Включите все опции offloading
+3. Используйте **Flux2 Optimizer Config**:
+   - `optimizer_type`: adamw8bit
+   - `cpu_offload_optimizer`: true
+4. Установите batch_size=1, gradient_accumulation=8
+
+### 📊 Требования к VRAM
+
+| Модель | Мин. VRAM | Рекомендуемый | Конфиг |
+|--------|-----------|---------------|--------|
+| Flux.1 | 12GB | 16GB+ | Стандартный |
+| Flux.2 Klein 9B | 8GB | 12GB+ | aggressive + 25 блоков |
+| Flux.2 Dev | 12GB | 24GB+ | conservative |
+
+---
+
+## 🙏 Credits / Благодарности
+
+This project is a **fork** of [kijai/ComfyUI-FluxTrainer](https://github.com/kijai/ComfyUI-FluxTrainer).
+
+Based on:
+- [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts) — Core training scripts
+- [KohakuBlueleaf/LyCORIS](https://github.com/KohakuBlueleaf/LyCORIS) — LyCORIS networks
+- [LoganBooker/prodigy-plus-schedule-free](https://github.com/LoganBooker/prodigy-plus-schedule-free) — Optimizer
+
+See [CREDITS.md](CREDITS.md) for full attribution.
+
+## 📄 License
+
+Apache-2.0 — Same as original project. See [LICENSE.md](LICENSE.md).
+
+---
+
+<div align="center">
+
+**Made with ❤️ for the ComfyUI Community**
+
+*If you find this useful, please ⭐ the repository!*
+
+</div>
 
