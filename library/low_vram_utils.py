@@ -521,3 +521,367 @@ def estimate_trainable_params_memory(model: nn.Module) -> float:
     # В FP32: 4 bytes per param
     bytes_needed = trainable_params * 4 * 4  # 4 copies, 4 bytes each
     return bytes_needed / (1024 ** 3)
+
+
+# =============================================================================
+# VRAM SAFETY CHECKER - Предиктивная проверка памяти
+# =============================================================================
+@dataclass
+class VRAMEstimate:
+    """Результат оценки VRAM."""
+    total_vram_needed_gb: float
+    base_model_gb: float
+    lora_weights_gb: float
+    activations_peak_gb: float
+    optimizer_gb: float
+    text_encoder_gb: float
+    safety_margin_gb: float
+    
+    available_vram_gb: float
+    will_fit: bool
+    risk_level: str  # "safe", "warning", "danger", "critical"
+    recommendations: List[str] = field(default_factory=list)
+    
+    def __str__(self) -> str:
+        status = "✅" if self.will_fit else "⚠️"
+        return (
+            f"{status} VRAM Estimate: {self.total_vram_needed_gb:.1f}GB needed, "
+            f"{self.available_vram_gb:.1f}GB available ({self.risk_level})"
+        )
+
+
+def estimate_vram_usage(
+    model_params_billions: float = 9.0,
+    resolution: Tuple[int, int] = (1024, 1024),
+    batch_size: int = 1,
+    network_dim: int = 16,
+    gradient_checkpointing: bool = True,
+    use_fp8_base: bool = True,
+    optimizer_offload: bool = True,
+    cache_text_encoder: bool = True,
+    blocks_to_swap: int = 20,
+    available_vram_gb: float = 8.0,
+) -> VRAMEstimate:
+    """
+    Предиктивно оценивает использование VRAM перед началом обучения.
+    
+    Помогает предотвратить OOM (Out of Memory) ошибки заранее.
+    
+    Args:
+        model_params_billions: Количество параметров модели в миллиардах (9B для Klein, 12B для Dev)
+        resolution: Размер изображения (width, height)
+        batch_size: Размер батча
+        network_dim: Ранг LoRA
+        gradient_checkpointing: Включен ли gradient checkpointing
+        use_fp8_base: Используется ли FP8 для базовой модели
+        optimizer_offload: Выгружается ли оптимизатор на CPU
+        cache_text_encoder: Кэшируются ли выходы text encoder
+        blocks_to_swap: Количество блоков для CPU swapping
+        available_vram_gb: Доступная VRAM в GB
+    
+    Returns:
+        VRAMEstimate с детальной информацией
+    """
+    recommendations = []
+    
+    # === Базовая модель ===
+    # FP8: 1 byte/param, FP16: 2 bytes/param
+    bytes_per_param = 1.0 if use_fp8_base else 2.0
+    base_model_bytes = model_params_billions * 1e9 * bytes_per_param
+    
+    # Учитываем block swapping - часть модели на CPU
+    if blocks_to_swap > 0:
+        total_blocks = 57  # Flux имеет примерно 57 блоков (19 double + 38 single)
+        gpu_blocks_ratio = max(0.1, 1.0 - (blocks_to_swap / total_blocks))
+        base_model_bytes *= gpu_blocks_ratio
+    
+    base_model_gb = base_model_bytes / (1024 ** 3)
+    
+    # === LoRA веса ===
+    # LoRA добавляет примерно (rank * hidden_dim * 2) параметров на слой
+    # Примерная оценка: rank * 0.01 GB
+    lora_weights_gb = network_dim * 0.008  # ~130MB для rank 16
+    
+    # === Активации ===
+    # Размер активаций зависит от разрешения и batch size
+    pixels = resolution[0] * resolution[1]
+    # Latent space 1/8 от оригинала, 16 каналов, FP16
+    latent_size = (pixels / 64) * 16 * 2  # bytes
+    
+    # Активации трансформера примерно 4KB на пиксель latent
+    if gradient_checkpointing:
+        # С checkpointing храним только 1/4 активаций
+        activation_multiplier = 0.5
+    else:
+        activation_multiplier = 4.0
+    
+    activations_bytes = latent_size * activation_multiplier * batch_size * 1000
+    activations_peak_gb = activations_bytes / (1024 ** 3)
+    
+    # === Text Encoder ===
+    if cache_text_encoder:
+        # Если кэшируем, text encoder не занимает VRAM во время обучения
+        text_encoder_gb = 0.0
+    else:
+        # T5-XXL ~10GB, CLIP-L ~0.5GB
+        text_encoder_gb = 2.0  # Минимум для inference
+    
+    # === Optimizer ===
+    if optimizer_offload:
+        optimizer_gb = 0.0
+    else:
+        # AdamW: 2 момента * размер LoRA параметров * 4 bytes
+        lora_params = network_dim * 1e6  # Примерная оценка
+        optimizer_gb = (lora_params * 2 * 4) / (1024 ** 3)
+    
+    # === Safety margin ===
+    # CUDA и PyTorch требуют дополнительную память для operations
+    safety_margin_gb = 1.0 + (batch_size * 0.2)
+    
+    # === Total ===
+    total_vram_needed_gb = (
+        base_model_gb + 
+        lora_weights_gb + 
+        activations_peak_gb + 
+        optimizer_gb + 
+        text_encoder_gb + 
+        safety_margin_gb
+    )
+    
+    # === Risk assessment ===
+    headroom = available_vram_gb - total_vram_needed_gb
+    
+    if headroom >= 2.0:
+        risk_level = "safe"
+        will_fit = True
+    elif headroom >= 0.5:
+        risk_level = "warning"
+        will_fit = True
+        recommendations.append("⚠️ Близко к лимиту VRAM. Могут быть спайки памяти.")
+    elif headroom >= 0:
+        risk_level = "danger"
+        will_fit = True
+        recommendations.append("🔴 Очень мало запаса. Высокий риск OOM при пиках нагрузки.")
+        recommendations.append("Рекомендуется увеличить blocks_to_swap или уменьшить batch_size.")
+    else:
+        risk_level = "critical"
+        will_fit = False
+        recommendations.append("❌ НЕДОСТАТОЧНО VRAM! Обучение вызовет OOM ошибку.")
+        
+        # Предлагаем решения
+        if not use_fp8_base:
+            recommendations.append("→ Включите use_fp8_base для экономии ~50% VRAM модели")
+        if not gradient_checkpointing:
+            recommendations.append("→ Включите gradient_checkpointing для экономии активаций")
+        if blocks_to_swap < 25:
+            recommendations.append(f"→ Увеличьте blocks_to_swap до {min(35, blocks_to_swap + 10)}")
+        if batch_size > 1:
+            recommendations.append("→ Уменьшите batch_size до 1")
+        if not optimizer_offload:
+            recommendations.append("→ Включите optimizer_offload для выгрузки оптимизатора на CPU")
+        if resolution[0] > 512 or resolution[1] > 512:
+            recommendations.append("→ Попробуйте уменьшить разрешение обучения")
+    
+    return VRAMEstimate(
+        total_vram_needed_gb=total_vram_needed_gb,
+        base_model_gb=base_model_gb,
+        lora_weights_gb=lora_weights_gb,
+        activations_peak_gb=activations_peak_gb,
+        optimizer_gb=optimizer_gb,
+        text_encoder_gb=text_encoder_gb,
+        safety_margin_gb=safety_margin_gb,
+        available_vram_gb=available_vram_gb,
+        will_fit=will_fit,
+        risk_level=risk_level,
+        recommendations=recommendations,
+    )
+
+
+def print_vram_estimate(estimate: VRAMEstimate):
+    """Выводит детальную информацию об использовании VRAM."""
+    logger.info("=" * 60)
+    logger.info("  VRAM Usage Estimate")
+    logger.info("=" * 60)
+    logger.info(f"  Base Model:      {estimate.base_model_gb:>6.2f} GB")
+    logger.info(f"  LoRA Weights:    {estimate.lora_weights_gb:>6.2f} GB")
+    logger.info(f"  Activations:     {estimate.activations_peak_gb:>6.2f} GB")
+    logger.info(f"  Text Encoder:    {estimate.text_encoder_gb:>6.2f} GB")
+    logger.info(f"  Optimizer:       {estimate.optimizer_gb:>6.2f} GB")
+    logger.info(f"  Safety Margin:   {estimate.safety_margin_gb:>6.2f} GB")
+    logger.info("-" * 60)
+    logger.info(f"  TOTAL NEEDED:    {estimate.total_vram_needed_gb:>6.2f} GB")
+    logger.info(f"  AVAILABLE:       {estimate.available_vram_gb:>6.2f} GB")
+    logger.info("-" * 60)
+    
+    status_icons = {
+        "safe": "✅ SAFE",
+        "warning": "⚠️  WARNING",
+        "danger": "🔴 DANGER",
+        "critical": "❌ CRITICAL"
+    }
+    logger.info(f"  Status: {status_icons.get(estimate.risk_level, estimate.risk_level)}")
+    
+    for rec in estimate.recommendations:
+        logger.info(f"  {rec}")
+    
+    logger.info("=" * 60)
+
+
+# =============================================================================
+# AUTO-RESUME TRAINING - Автоматическое продолжение обучения
+# =============================================================================
+def find_latest_checkpoint(output_dir: str) -> Optional[str]:
+    """
+    Находит последний чекпоинт в директории вывода.
+    
+    Поддерживает форматы:
+    - flux2_lora_step_1000.safetensors
+    - epoch_5_step_500.safetensors
+    - *.safetensors (по времени модификации)
+    
+    Args:
+        output_dir: Директория с чекпоинтами
+    
+    Returns:
+        Путь к последнему чекпоинту или None
+    """
+    import glob
+    import re
+    from pathlib import Path
+    
+    output_path = Path(output_dir)
+    
+    if not output_path.exists():
+        return None
+    
+    # Ищем safetensors файлы
+    checkpoints = list(output_path.glob("*.safetensors"))
+    
+    if not checkpoints:
+        # Проверяем подпапки
+        checkpoints = list(output_path.glob("**/*.safetensors"))
+    
+    if not checkpoints:
+        return None
+    
+    # Пробуем отсортировать по номеру шага
+    step_pattern = re.compile(r'step[_-]?(\d+)', re.IGNORECASE)
+    epoch_pattern = re.compile(r'epoch[_-]?(\d+)', re.IGNORECASE)
+    
+    def extract_order(path: Path) -> Tuple[int, int, float]:
+        """Извлекает порядок сортировки (epoch, step, mtime)."""
+        name = path.name
+        
+        epoch = 0
+        step = 0
+        
+        epoch_match = epoch_pattern.search(name)
+        if epoch_match:
+            epoch = int(epoch_match.group(1))
+        
+        step_match = step_pattern.search(name)
+        if step_match:
+            step = int(step_match.group(1))
+        
+        mtime = path.stat().st_mtime
+        
+        return (epoch, step, mtime)
+    
+    # Сортируем: epoch DESC, step DESC, mtime DESC
+    sorted_checkpoints = sorted(checkpoints, key=extract_order, reverse=True)
+    
+    if sorted_checkpoints:
+        latest = str(sorted_checkpoints[0])
+        logger.info(f"🔄 Found latest checkpoint: {latest}")
+        return latest
+    
+    return None
+
+
+def auto_resume_training(
+    output_dir: str,
+    args,
+    force: bool = False
+) -> bool:
+    """
+    Автоматически настраивает продолжение обучения с последнего чекпоинта.
+    
+    Args:
+        output_dir: Директория с чекпоинтами
+        args: Namespace с аргументами обучения
+        force: Форсировать resume даже если уже указан
+    
+    Returns:
+        True если resume настроен, False если чекпоинт не найден
+    """
+    # Проверяем, не указан ли уже resume
+    if hasattr(args, 'resume') and args.resume and not force:
+        logger.info(f"Resume already configured: {args.resume}")
+        return True
+    
+    if hasattr(args, 'network_weights') and args.network_weights and not force:
+        logger.info(f"Network weights already specified: {args.network_weights}")
+        return True
+    
+    # Ищем последний чекпоинт
+    latest = find_latest_checkpoint(output_dir)
+    
+    if latest:
+        logger.info(f"🔄 Auto-resume: Found checkpoint at {latest}")
+        
+        # Устанавливаем network_weights для продолжения LoRA обучения
+        if not hasattr(args, 'network_weights') or not args.network_weights:
+            args.network_weights = latest
+            logger.info(f"   Set network_weights = {latest}")
+        
+        return True
+    
+    logger.info("No previous checkpoint found. Starting fresh training.")
+    return False
+
+
+def get_training_progress(output_dir: str) -> Dict[str, Any]:
+    """
+    Анализирует прогресс обучения из директории.
+    
+    Returns:
+        Dict с информацией о прогрессе:
+        - total_checkpoints: количество чекпоинтов
+        - latest_checkpoint: путь к последнему
+        - latest_step: номер последнего шага (если определим)
+        - training_started: была ли начата тренировка
+    """
+    import re
+    from pathlib import Path
+    
+    output_path = Path(output_dir)
+    result = {
+        "total_checkpoints": 0,
+        "latest_checkpoint": None,
+        "latest_step": 0,
+        "latest_epoch": 0,
+        "training_started": False,
+    }
+    
+    if not output_path.exists():
+        return result
+    
+    checkpoints = list(output_path.glob("**/*.safetensors"))
+    result["total_checkpoints"] = len(checkpoints)
+    result["training_started"] = len(checkpoints) > 0
+    
+    if checkpoints:
+        result["latest_checkpoint"] = find_latest_checkpoint(output_dir)
+        
+        # Пробуем извлечь step из имени
+        if result["latest_checkpoint"]:
+            name = Path(result["latest_checkpoint"]).name
+            step_match = re.search(r'step[_-]?(\d+)', name, re.IGNORECASE)
+            if step_match:
+                result["latest_step"] = int(step_match.group(1))
+            
+            epoch_match = re.search(r'epoch[_-]?(\d+)', name, re.IGNORECASE)
+            if epoch_match:
+                result["latest_epoch"] = int(epoch_match.group(1))
+    
+    return result

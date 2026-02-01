@@ -81,7 +81,11 @@ def _lazy_import_training():
             LowVRAMConfig, 
             OffloadStrategy, 
             get_optimal_config_for_vram,
-            aggressive_memory_cleanup
+            aggressive_memory_cleanup,
+            estimate_vram_usage,
+            print_vram_estimate,
+            auto_resume_training,
+            get_training_progress,
         )
         
         # IPEX (Intel GPU) - строго опционально
@@ -107,6 +111,10 @@ def _lazy_import_training():
             "OffloadStrategy": OffloadStrategy,
             "get_optimal_config_for_vram": get_optimal_config_for_vram,
             "aggressive_memory_cleanup": aggressive_memory_cleanup,
+            "estimate_vram_usage": estimate_vram_usage,
+            "print_vram_estimate": print_vram_estimate,
+            "auto_resume_training": auto_resume_training,
+            "get_training_progress": get_training_progress,
             "clean_memory_on_device": clean_memory_on_device,
         })
         
@@ -116,16 +124,94 @@ def _lazy_import_training():
     except Exception as e:
         _IMPORT_ERROR = str(e)
         import traceback
-        traceback.print_exc()
-        error_msg = (
-            f"Training dependency error: {e}\n\n"
-            "Возможные причины:\n"
-            "1. Отсутствует Python.h (embedded Python не поддерживает компиляцию)\n"
-            "2. Проблемы с triton/bitsandbytes\n"
-            "3. Несовместимая версия torch\n\n"
-            "Решение: используйте полную установку Python, не embedded/portable."
-        )
+        import sys
+        
+        # Детальная диагностика ошибки
+        error_lower = str(e).lower()
+        traceback_str = traceback.format_exc()
+        
+        # Определяем тип ошибки и даём конкретные рекомендации
+        if "python.h" in error_lower or "include file" in error_lower:
+            problem = "❌ ОШИБКА КОМПИЛЯЦИИ: Отсутствует Python.h"
+            diagnosis = [
+                "Вы используете embedded/portable Python, который не поддерживает компиляцию C расширений.",
+                "",
+                "🔧 РЕШЕНИЕ:",
+                "1. Запустите: python install.py",
+                "   Это установит pre-built wheels для triton и bitsandbytes",
+                "",
+                "2. Или установите полный Python с python.org:",
+                "   - Скачайте 'Windows installer (64-bit)' с https://python.org",
+                "   - При установке выберите 'Add Python to PATH'",
+                "   - Переустановите ComfyUI с полным Python",
+            ]
+        elif "triton" in error_lower:
+            problem = "❌ ОШИБКА TRITON: Не удалось загрузить triton"
+            diagnosis = [
+                "Triton требует специальной сборки для Windows.",
+                "",
+                "🔧 РЕШЕНИЕ:",
+                "1. Запустите: python install.py",
+                "   Это установит pre-built triton для Windows",
+                "",
+                "2. Или вручную: pip install https://github.com/woct0rdho/triton-windows/releases/download/v3.1.0-windows.post8/triton-3.1.0-cpXXX-win_amd64.whl",
+                "   (замените XXX на вашу версию Python: 310, 311, 312)",
+            ]
+        elif "bitsandbytes" in error_lower:
+            problem = "❌ ОШИБКА BITSANDBYTES: Не удалось загрузить bitsandbytes"
+            diagnosis = [
+                "bitsandbytes требует CUDA и специальной сборки для Windows.",
+                "",
+                "🔧 РЕШЕНИЕ:",
+                "1. Запустите: python install.py",
+                "   Это установит pre-built bitsandbytes для Windows",
+                "",
+                "2. Или вручную: pip install bitsandbytes --index-url https://jllllll.github.io/bitsandbytes-windows-webui",
+            ]
+        elif "torch" in error_lower or "cuda" in error_lower:
+            problem = "❌ ОШИБКА TORCH/CUDA: Проблема с PyTorch или CUDA"
+            diagnosis = [
+                "PyTorch не настроен правильно или отсутствует CUDA.",
+                "",
+                "🔧 РЕШЕНИЕ:",
+                "1. Проверьте установку CUDA: nvidia-smi",
+                "2. Переустановите PyTorch с CUDA: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121",
+            ]
+        else:
+            problem = f"❌ ОШИБКА ИМПОРТА: {type(e).__name__}"
+            diagnosis = [
+                f"Не удалось загрузить модули обучения: {e}",
+                "",
+                "🔧 РЕШЕНИЕ:",
+                "1. Запустите: python install.py",
+                "2. Проверьте requirements.txt: pip install -r requirements.txt",
+                "3. Убедитесь, что CUDA установлена правильно",
+            ]
+        
+        # Формируем красивое сообщение
+        separator = "=" * 70
+        error_lines = [
+            "",
+            separator,
+            problem,
+            separator,
+            "",
+        ] + diagnosis + [
+            "",
+            f"Python: {sys.version}",
+            f"Executable: {sys.executable}",
+            "",
+            "Полный traceback:",
+            traceback_str,
+            separator,
+        ]
+        
+        error_msg = "\n".join(error_lines)
         logger.error(error_msg)
+        
+        # Также выводим в консоль для видимости
+        print(error_msg)
+        
         raise RuntimeError(error_msg)
 
 
@@ -438,6 +524,12 @@ class Flux2InitTraining:
                 "output_dir": ("STRING", {"default": "flux2_trainer_output", "multiline": False, 
                     "tooltip": "Output directory path (relative to ComfyUI folder)"}),
                 
+                # Network type - LoRA or DoRA
+                "network_type": (["lora", "dora"], {
+                    "default": "lora",
+                    "tooltip": "LoRA - classic Low-Rank Adaptation. DoRA - Weight-Decomposed LoRA (better quality, slightly more VRAM)"
+                }),
+                
                 # LoRA settings
                 "network_dim": ("INT", {"default": 16, "min": 1, "max": 128, "step": 1,
                     "tooltip": "LoRA rank (dim). Lower = less VRAM. Recommended: 8-32 for low VRAM"}),
@@ -472,6 +564,14 @@ class Flux2InitTraining:
                 "low_vram_config": ("FLUX2_LOW_VRAM_CONFIG", {
                     "tooltip": "Low VRAM configuration from Flux2LowVRAMConfig node"
                 }),
+                "auto_resume": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Automatically resume from latest checkpoint if found in output_dir"
+                }),
+                "check_vram": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Check VRAM availability before training and warn if insufficient"
+                }),
                 "additional_args": ("STRING", {"multiline": True, "default": "",
                     "tooltip": "Additional training arguments"}),
                 "seed": ("INT", {"default": 42, "min": 0, "max": 2**32-1}),
@@ -493,7 +593,8 @@ class Flux2InitTraining:
         dataset, 
         optimizer_settings, 
         output_name,
-        output_dir, 
+        output_dir,
+        network_type,
         network_dim, 
         network_alpha,
         learning_rate,
@@ -505,6 +606,8 @@ class Flux2InitTraining:
         optimizer_fusing,
         sample_prompts,
         low_vram_config=None,
+        auto_resume=True,
+        check_vram=True,
         additional_args=None,
         seed=42,
         prompt=None, 
@@ -519,6 +622,10 @@ class Flux2InitTraining:
         train_network_setup_parser = modules["train_network_setup_parser"]
         flux_train_utils = modules["flux_train_utils"]
         get_optimal_config_for_vram = modules["get_optimal_config_for_vram"]
+        estimate_vram_usage = modules["estimate_vram_usage"]
+        print_vram_estimate = modules["print_vram_estimate"]
+        auto_resume_fn = modules["auto_resume_training"]
+        get_training_progress = modules["get_training_progress"]
         
         mm.soft_empty_cache()
         
@@ -534,6 +641,56 @@ class Flux2InitTraining:
         required_free_space = 2 * (2**30)  # 2 GB минимум
         if free <= required_free_space:
             raise ValueError(f"Insufficient disk space. Required: {required_free_space/2**30:.1f}GB. Available: {free/2**30:.1f}GB")
+        
+        # ===================================================================
+        # VRAM SAFETY CHECK - Проверяем доступную память перед обучением
+        # ===================================================================
+        if check_vram:
+            try:
+                vram_estimate = estimate_vram_usage(
+                    model_type="flux_9b",  # или flux_12b в зависимости от модели
+                    network_dim=network_dim,
+                    use_fp8=low_vram_config.use_fp8_base,
+                    gradient_checkpointing=low_vram_config.gradient_checkpointing,
+                    cache_text_encoder=cache_text_encoder_outputs != "disabled",
+                    optimizer_type=optimizer_settings.get("optimizer_type", "adamw8bit"),
+                    batch_size=1,
+                )
+                print_vram_estimate(vram_estimate)
+                
+                if vram_estimate.risk_level == "critical":
+                    raise ValueError(
+                        f"VRAM CRITICAL: Требуется ~{vram_estimate.total_estimated_gb:.1f}GB, "
+                        f"доступно {vram_estimate.available_vram_gb:.1f}GB. "
+                        "Уменьшите network_dim или включите FP8 base."
+                    )
+                elif vram_estimate.risk_level == "danger":
+                    logger.warning(
+                        f"⚠️ VRAM WARNING: Требуется ~{vram_estimate.total_estimated_gb:.1f}GB, "
+                        f"доступно {vram_estimate.available_vram_gb:.1f}GB. Возможны проблемы с памятью."
+                    )
+            except Exception as e:
+                logger.warning(f"Could not estimate VRAM: {e}")
+        
+        # ===================================================================
+        # AUTO-RESUME - Автоматическое продолжение с последнего чекпоинта
+        # ===================================================================
+        resume_checkpoint = None
+        if auto_resume:
+            try:
+                resume_result = auto_resume_fn(output_dir)
+                if resume_result:
+                    resume_checkpoint = resume_result["checkpoint_path"]
+                    progress = get_training_progress(output_dir)
+                    logger.info("=" * 60)
+                    logger.info("🔄 AUTO-RESUME: Найден чекпоинт для продолжения!")
+                    logger.info(f"   Файл: {os.path.basename(resume_checkpoint)}")
+                    if progress:
+                        logger.info(f"   Прогресс: шаг {progress.get('last_step', '?')}, "
+                                  f"эпоха {progress.get('last_epoch', '?')}")
+                    logger.info("=" * 60)
+            except Exception as e:
+                logger.warning(f"Auto-resume check failed: {e}")
         
         # Парсим датасет
         dataset_config = dataset["datasets"]
@@ -565,6 +722,10 @@ class Flux2InitTraining:
             prompts_list = [sample_prompts.strip()]
         
         # Формируем конфигурацию
+        # Определяем тип сети (LoRA или DoRA)
+        is_dora = network_type == "dora"
+        network_suffix = "dora" if is_dora else "lora"
+        
         config_dict = {
             # Модели
             "pretrained_model_name_or_path": flux2_models["transformer"],
@@ -572,19 +733,22 @@ class Flux2InitTraining:
             "t5xxl": flux2_models["t5"],
             "ae": flux2_models["vae"],
             
-            # LoRA
+            # LoRA/DoRA
             "network_module": ".networks.lora_flux",
             "network_dim": network_dim,
             "network_alpha": network_alpha,
+            # DoRA: Weight-Decomposed Low-Rank Adaptation
+            # Добавляет decomposed weight magnitude для лучшего качества
+            "network_args": {"dora_wd": True} if is_dora else None,
             
             # Training
             "learning_rate": learning_rate,
             "max_train_steps": max_train_steps,
             "seed": seed,
             
-            # Output
+            # Output - включаем тип сети в имя
             "output_dir": output_dir,
-            "output_name": f"{output_name}_rank{network_dim}_{save_dtype}",
+            "output_name": f"{output_name}_{network_suffix}_rank{network_dim}_{save_dtype}",
             "save_model_as": "safetensors",
             "save_precision": save_dtype,
             
@@ -642,9 +806,14 @@ class Flux2InitTraining:
             "alpha_mask": dataset.get("alpha_mask", False),
         }
         
-        # Добавляем lora_path если есть
+        # Добавляем lora_path если есть (для fine-tuning существующей LoRA)
         if flux2_models.get("lora_path"):
             config_dict["network_weights"] = flux2_models["lora_path"]
+        
+        # Добавляем resume checkpoint если найден
+        if resume_checkpoint:
+            config_dict["network_weights"] = resume_checkpoint
+            logger.info(f"📂 Resuming from: {os.path.basename(resume_checkpoint)}")
         
         # Обновляем из optimizer_settings
         config_dict.update(optimizer_settings)
@@ -666,12 +835,15 @@ class Flux2InitTraining:
         
         # Инициализируем тренер
         logger.info("=" * 60)
-        logger.info("Initializing Flux.2 LoRA Training")
+        logger.info(f"Initializing Flux.2 {'DoRA' if is_dora else 'LoRA'} Training")
         logger.info(f"  Model type: {flux2_models.get('model_type', 'unknown')}")
+        logger.info(f"  Network type: {network_type.upper()}")
         logger.info(f"  Output: {output_dir}/{output_name}")
         logger.info(f"  Network dim: {network_dim}, alpha: {network_alpha}")
         logger.info(f"  Blocks to swap: {low_vram_config.blocks_to_swap}")
         logger.info(f"  FP8 base: {low_vram_config.use_fp8_base}")
+        if resume_checkpoint:
+            logger.info(f"  Resuming from: {os.path.basename(resume_checkpoint)}")
         logger.info("=" * 60)
         
         with torch.inference_mode(False):
