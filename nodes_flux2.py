@@ -159,7 +159,7 @@ def _lazy_import_training():
         
         # Определяем тип ошибки и даём конкретные рекомендации
         if "python.h" in error_lower or "include file" in error_lower:
-            problem = "❌ ОШИБКА КОМПИЛЯЦИИ: Отсутствует Python.h"
+            problem = "[ERROR] COMPILATION ERROR: Python.h not found"
             diagnosis = [
                 "Вы используете embedded/portable Python, который не поддерживает компиляцию C расширений.",
                 "",
@@ -173,7 +173,7 @@ def _lazy_import_training():
                 "   - Переустановите ComfyUI с полным Python",
             ]
         elif "triton" in error_lower:
-            problem = "❌ ОШИБКА TRITON: Не удалось загрузить triton"
+            problem = "[ERROR] TRITON ERROR: Could not load triton"
             diagnosis = [
                 "Triton требует специальной сборки для Windows.",
                 "",
@@ -185,7 +185,7 @@ def _lazy_import_training():
                 "   (замените XXX на вашу версию Python: 310, 311, 312)",
             ]
         elif "bitsandbytes" in error_lower:
-            problem = "❌ ОШИБКА BITSANDBYTES: Не удалось загрузить bitsandbytes"
+            problem = "[ERROR] BITSANDBYTES ERROR: Could not load bitsandbytes"
             diagnosis = [
                 "bitsandbytes требует CUDA и специальной сборки для Windows.",
                 "",
@@ -196,7 +196,7 @@ def _lazy_import_training():
                 "2. Или вручную: pip install bitsandbytes --index-url https://jllllll.github.io/bitsandbytes-windows-webui",
             ]
         elif "torch" in error_lower or "cuda" in error_lower:
-            problem = "❌ ОШИБКА TORCH/CUDA: Проблема с PyTorch или CUDA"
+            problem = "[ERROR] TORCH/CUDA ERROR: Problem with PyTorch or CUDA"
             diagnosis = [
                 "PyTorch не настроен правильно или отсутствует CUDA.",
                 "",
@@ -205,7 +205,7 @@ def _lazy_import_training():
                 "2. Переустановите PyTorch с CUDA: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121",
             ]
         else:
-            problem = f"❌ ОШИБКА ИМПОРТА: {type(e).__name__}"
+            problem = f"[ERROR] IMPORT ERROR: {type(e).__name__}"
             diagnosis = [
                 f"Не удалось загрузить модули обучения: {e}",
                 "",
@@ -673,7 +673,7 @@ class Flux2InitTraining:
         # Если alpha > dim, веса "взрываются" и LoRA получается битой
         if network_alpha > network_dim:
             logger.warning(
-                f"⚠️ network_alpha ({network_alpha}) > network_dim ({network_dim})! "
+                f"[WARN] network_alpha ({network_alpha}) > network_dim ({network_dim})! "
                 f"Это может привести к нестабильному обучению. "
                 f"Автоматически устанавливаю network_alpha = {network_dim}"
             )
@@ -681,6 +681,34 @@ class Flux2InitTraining:
         
         # Проверка network_type
         is_dora = network_type.lower() == "dora"
+        
+        # ===================================================================
+        # SAFE MODE - Fallback на Adafactor если bitsandbytes недоступен
+        # ===================================================================
+        bnb_available = False
+        try:
+            import bitsandbytes
+            bnb_available = True
+        except ImportError:
+            logger.warning("[WARN] bitsandbytes not available. 8-bit optimizers disabled.")
+        
+        # Получаем тип оптимизатора из настроек
+        current_optimizer = optimizer_settings.get("optimizer_type", "adafactor")
+        
+        # Список оптимизаторов, требующих bitsandbytes
+        bnb_optimizers = ["adamw8bit", "lion8bit", "ademamix8bit", "pagedademamix8bit"]
+        
+        if current_optimizer.lower() in [o.lower() for o in bnb_optimizers] and not bnb_available:
+            logger.warning(
+                f"[WARN] Optimizer '{current_optimizer}' requires bitsandbytes which is not available. "
+                f"Automatically switching to Adafactor (works without bitsandbytes)."
+            )
+            optimizer_settings["optimizer_type"] = "adafactor"
+            optimizer_settings["optimizer_args"] = [
+                "scale_parameter=False",
+                "relative_step=False",
+                "warmup_init=False"
+            ]
         
         # Создаём конфиг по умолчанию если не передан
         if low_vram_config is None:
@@ -719,7 +747,7 @@ class Flux2InitTraining:
                     )
                 elif vram_estimate.risk_level == "danger":
                     logger.warning(
-                        f"⚠️ VRAM WARNING: Требуется ~{vram_estimate.total_estimated_gb:.1f}GB, "
+                        f"[WARN] VRAM WARNING: Required ~{vram_estimate.total_estimated_gb:.1f}GB, "
                         f"доступно {vram_estimate.available_vram_gb:.1f}GB. Возможны проблемы с памятью."
                     )
             except Exception as e:
@@ -736,7 +764,7 @@ class Flux2InitTraining:
                     resume_checkpoint = resume_result["checkpoint_path"]
                     progress = get_training_progress(output_dir)
                     logger.info("=" * 60)
-                    logger.info("🔄 AUTO-RESUME: Найден чекпоинт для продолжения!")
+                    logger.info("[AUTO-RESUME] Found checkpoint to continue!")
                     logger.info(f"   Файл: {os.path.basename(resume_checkpoint)}")
                     if progress:
                         logger.info(f"   Прогресс: шаг {progress.get('last_step', '?')}, "
@@ -872,7 +900,7 @@ class Flux2InitTraining:
         # Добавляем resume checkpoint если найден
         if resume_checkpoint:
             config_dict["network_weights"] = resume_checkpoint
-            logger.info(f"📂 Resuming from: {os.path.basename(resume_checkpoint)}")
+            logger.info(f"[RESUME] Resuming from: {os.path.basename(resume_checkpoint)}")
         
         # Обновляем из optimizer_settings
         config_dict.update(optimizer_settings)
@@ -1336,11 +1364,11 @@ class Flux2MemoryEstimator:
         
         # Статус
         if total_vram <= 8:
-            status = "✅ Should fit in 8GB VRAM"
+            status = "[OK] Should fit in 8GB VRAM"
         elif total_vram <= 12:
-            status = "⚠️ May need 12GB VRAM"
+            status = "[WARN] May need 12GB VRAM"
         else:
-            status = "❌ Requires more than 12GB VRAM"
+            status = "[ERROR] Requires more than 12GB VRAM"
         
         report = f"""
 ╔══════════════════════════════════════════════════════════════╗

@@ -14,7 +14,7 @@ import os
 import traceback
 import logging
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 
 # Настройка логгера
 logger = logging.getLogger("ComfyUI-FluxTrainer-Pro")
@@ -22,9 +22,9 @@ logger = logging.getLogger("ComfyUI-FluxTrainer-Pro")
 # --- Version Check ---
 _MIN_PYTHON = (3, 10)
 if sys.version_info < _MIN_PYTHON:
-    print(f"[ComfyUI-FluxTrainer-Pro] ⚠️ Python {_MIN_PYTHON[0]}.{_MIN_PYTHON[1]}+ required, got {sys.version_info.major}.{sys.version_info.minor}")
+    print(f"[ComfyUI-FluxTrainer-Pro] [WARN] Python {_MIN_PYTHON[0]}.{_MIN_PYTHON[1]}+ required, got {sys.version_info.major}.{sys.version_info.minor}")
 
-print(f"[ComfyUI-FluxTrainer-Pro] 🚀 v{__version__} initializing...")
+print(f"[ComfyUI-FluxTrainer-Pro] v{__version__} initializing...")
 
 # --- Dependency check with detailed diagnostics ---
 _critical_deps_ok = True
@@ -47,18 +47,18 @@ _optional_deps_status = {}
 for _opt_dep in ["triton", "bitsandbytes", "diffusers"]:
     try:
         __import__(_opt_dep)
-        _optional_deps_status[_opt_dep] = "✅ OK"
+        _optional_deps_status[_opt_dep] = "[OK]"
     except ImportError:
-        _optional_deps_status[_opt_dep] = "⚠️ Not installed"
+        _optional_deps_status[_opt_dep] = "[WARN] Not installed"
     except Exception as e:
-        _optional_deps_status[_opt_dep] = f"❌ Broken: {e}"
+        _optional_deps_status[_opt_dep] = f"[ERROR] Broken: {e}"
 
 if _missing_deps:
-    print(f"[ComfyUI-FluxTrainer-Pro] ⚠️ Missing core dependencies: {', '.join(_missing_deps)}")
+    print(f"[ComfyUI-FluxTrainer-Pro] [WARN] Missing core dependencies: {', '.join(_missing_deps)}")
     print("[ComfyUI-FluxTrainer-Pro]    Run: pip install -r requirements.txt")
 
 if _broken_deps:
-    print(f"[ComfyUI-FluxTrainer-Pro] ❌ Broken dependencies:")
+    print(f"[ComfyUI-FluxTrainer-Pro] [ERROR] Broken dependencies:")
     for dep, err in _broken_deps.items():
         print(f"    {dep}: {err}")
 
@@ -86,7 +86,7 @@ class FluxTrainerDependencyError:
         error_msg = "DEPENDENCY ERROR\\n\\n"
         error_msg += "Missing: " + ", ".join(_missing_deps) if _missing_deps else ""
         error_msg += "\\n\\nBroken: " + str(_broken_deps) if _broken_deps else ""
-        error_msg += "\\n\\n🔧 SOLUTION:\\n"
+        error_msg += "\n\nSOLUTION:\n"
         error_msg += "1. Run: python install.py\\n"
         error_msg += "2. Or: pip install -r requirements.txt\\n"
         error_msg += "3. Restart ComfyUI"
@@ -106,68 +106,68 @@ class FluxTrainerDependencyError:
     OUTPUT_NODE = True
     
     def show_error(self, error_info):
-        print(f"[FluxTrainer] ❌ {error_info}")
+        print(f"[FluxTrainer] [ERROR] {error_info}")
         return ()
 
 
 # Если критические зависимости сломаны, загружаем только ноду-заглушку
 if not _critical_deps_ok:
     NODE_CLASS_MAPPINGS = {"FluxTrainerDependencyError": FluxTrainerDependencyError}
-    NODE_DISPLAY_NAME_MAPPINGS = {"FluxTrainerDependencyError": "⚠️ Flux Trainer - Install Error"}
-    print(f"[ComfyUI-FluxTrainer-Pro] ❌ Critical dependencies missing. Only error node loaded.")
+    NODE_DISPLAY_NAME_MAPPINGS = {"FluxTrainerDependencyError": "[!] Flux Trainer - Install Error"}
+    print(f"[ComfyUI-FluxTrainer-Pro] [ERROR] Critical dependencies missing. Only error node loaded.")
 else:
     # --- Load main Flux nodes ---
     try:
         from .nodes import NODE_CLASS_MAPPINGS as _NCM_FLUX, NODE_DISPLAY_NAME_MAPPINGS as _NDM_FLUX
         NODE_CLASS_MAPPINGS.update(_NCM_FLUX)
         NODE_DISPLAY_NAME_MAPPINGS.update(_NDM_FLUX)
-        print("[ComfyUI-FluxTrainer-Pro] ✅ Loaded Flux nodes")
+        print("[ComfyUI-FluxTrainer-Pro] [OK] Loaded Flux nodes")
     except Exception as e:
         traceback.print_exc()
-        print(f"[ComfyUI-FluxTrainer-Pro] ❌ Failed to load Flux nodes: {e}")
+        print(f"[ComfyUI-FluxTrainer-Pro] [ERROR] Failed to load Flux nodes: {e}")
 
     # --- Load SD3 nodes ---
     try:
         from .nodes_sd3 import NODE_CLASS_MAPPINGS as _NCM_SD3, NODE_DISPLAY_NAME_MAPPINGS as _NDM_SD3
         NODE_CLASS_MAPPINGS.update(_NCM_SD3)
         NODE_DISPLAY_NAME_MAPPINGS.update(_NDM_SD3)
-        print("[ComfyUI-FluxTrainer-Pro] ✅ Loaded SD3 nodes")
+        print("[ComfyUI-FluxTrainer-Pro] [OK] Loaded SD3 nodes")
     except Exception as e:
-        print(f"[ComfyUI-FluxTrainer-Pro] ⚠️ SD3 nodes not loaded: {e}")
+        print(f"[ComfyUI-FluxTrainer-Pro] [WARN] SD3 nodes not loaded: {e}")
 
     # --- Load SDXL nodes ---
     try:
         from .nodes_sdxl import NODE_CLASS_MAPPINGS as _NCM_SDXL, NODE_DISPLAY_NAME_MAPPINGS as _NDM_SDXL
         NODE_CLASS_MAPPINGS.update(_NCM_SDXL)
         NODE_DISPLAY_NAME_MAPPINGS.update(_NDM_SDXL)
-        print("[ComfyUI-FluxTrainer-Pro] ✅ Loaded SDXL nodes")
+        print("[ComfyUI-FluxTrainer-Pro] [OK] Loaded SDXL nodes")
     except Exception as e:
-        print(f"[ComfyUI-FluxTrainer-Pro] ⚠️ SDXL nodes not loaded: {e}")
+        print(f"[ComfyUI-FluxTrainer-Pro] [WARN] SDXL nodes not loaded: {e}")
 
     # --- Load Flux.2 nodes ---
     try:
         from .nodes_flux2 import NODE_CLASS_MAPPINGS as _NCM_FLUX2, NODE_DISPLAY_NAME_MAPPINGS as _NDM_FLUX2
         NODE_CLASS_MAPPINGS.update(_NCM_FLUX2)
         NODE_DISPLAY_NAME_MAPPINGS.update(_NDM_FLUX2)
-        print("[ComfyUI-FluxTrainer-Pro] ✅ Loaded Flux.2 nodes")
+        print("[ComfyUI-FluxTrainer-Pro] [OK] Loaded Flux.2 nodes")
     except Exception as e:
         traceback.print_exc()
-        print(f"[ComfyUI-FluxTrainer-Pro] ❌ Failed to load Flux.2 nodes: {e}")
+        print(f"[ComfyUI-FluxTrainer-Pro] [ERROR] Failed to load Flux.2 nodes: {e}")
 
     # --- Load Extended utility nodes ---
     try:
         from .nodes_extended import NODE_CLASS_MAPPINGS as _NCM_EXT, NODE_DISPLAY_NAME_MAPPINGS as _NDM_EXT
         NODE_CLASS_MAPPINGS.update(_NCM_EXT)
         NODE_DISPLAY_NAME_MAPPINGS.update(_NDM_EXT)
-        print("[ComfyUI-FluxTrainer-Pro] ✅ Loaded Extended nodes")
+        print("[ComfyUI-FluxTrainer-Pro] [OK] Loaded Extended nodes")
     except Exception as e:
         traceback.print_exc()
-        print(f"[ComfyUI-FluxTrainer-Pro] ❌ Failed to load Extended nodes: {e}")
+        print(f"[ComfyUI-FluxTrainer-Pro] [ERROR] Failed to load Extended nodes: {e}")
 
 # --- Web extensions directory ---
 WEB_DIRECTORY = "./web"
 
 # Summary
-print(f"[ComfyUI-FluxTrainer-Pro] 📦 Total nodes loaded: {len(NODE_CLASS_MAPPINGS)}")
+print(f"[ComfyUI-FluxTrainer-Pro] Total nodes loaded: {len(NODE_CLASS_MAPPINGS)}")
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

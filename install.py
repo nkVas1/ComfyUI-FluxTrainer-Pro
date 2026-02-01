@@ -109,19 +109,23 @@ def print_header():
 
 
 def print_success(msg: str):
-    print(f"✅ {msg}")
+    """Выводит успешное сообщение (ASCII-safe для Windows console)."""
+    print(f"[OK] {msg}")
 
 
 def print_warning(msg: str):
-    print(f"⚠️  {msg}")
+    """Выводит предупреждение (ASCII-safe для Windows console)."""
+    print(f"[WARN] {msg}")
 
 
 def print_error(msg: str):
-    print(f"❌ {msg}")
+    """Выводит ошибку (ASCII-safe для Windows console)."""
+    print(f"[ERROR] {msg}")
 
 
 def print_info(msg: str):
-    print(f"ℹ️  {msg}")
+    """Выводит информационное сообщение (ASCII-safe для Windows console)."""
+    print(f"[INFO] {msg}")
 
 
 # =============================================================================
@@ -171,9 +175,15 @@ def install_basic_requirements():
 
 def install_triton_windows():
     """Устанавливает pre-built Triton для Windows с fallback источниками."""
+    import shutil
+    
     print_info("Checking Triton for Windows...")
     
     py_ver = (sys.version_info.major, sys.version_info.minor)
+    
+    # Путь к папке triton в site-packages
+    site_packages = Path(sys.executable).parent / "Lib" / "site-packages"
+    triton_dir = site_packages / "triton"
     
     if is_installed("triton"):
         version = get_package_version("triton")
@@ -184,11 +194,22 @@ def install_triton_windows():
             return True
         except ImportError as e:
             print_warning(f"Triton installed but broken: {e}")
-            print_info("Uninstalling broken triton...")
+            print_info("Removing broken triton installation...")
+            
+            # Удаляем через pip
             try:
                 run_pip("uninstall", "-y", "triton")
             except:
                 pass
+            
+            # Удаляем папку вручную если осталась
+            if triton_dir.exists():
+                try:
+                    shutil.rmtree(triton_dir)
+                    print_info("Removed triton folder from site-packages")
+                except Exception as rm_err:
+                    print_warning(f"Could not remove triton folder: {rm_err}")
+                    print_info("Please delete manually: " + str(triton_dir))
     
     # Пробуем основной источник (woct0rdho - v3.1.0)
     wheel_url = TRITON_WHEELS_PRIMARY.get(py_ver)
@@ -213,7 +234,7 @@ def install_triton_windows():
             print_warning(f"Fallback source also failed: {e}")
     
     print_warning(f"No working Triton wheel for Python {py_ver[0]}.{py_ver[1]}")
-    print_info("💡 TIP: Use Adafactor optimizer - it doesn't require Triton!")
+    print_info("TIP: Use Adafactor optimizer - it doesn't require Triton!")
     return False
 
 
@@ -221,31 +242,41 @@ def install_bitsandbytes_windows():
     """Устанавливает bitsandbytes с pre-built binaries для Windows."""
     print_info("Checking bitsandbytes for Windows...")
     
+    # Проверяем, установлен ли bitsandbytes и работает ли он
     if is_installed("bitsandbytes"):
         version = get_package_version("bitsandbytes")
-        print_success(f"bitsandbytes already installed (v{version})")
-        return True
+        try:
+            import bitsandbytes
+            print_success(f"bitsandbytes already installed and working (v{version})")
+            return True
+        except ImportError as e:
+            print_warning(f"bitsandbytes installed but broken (v{version}): {e}")
+            print_info("Uninstalling broken bitsandbytes...")
+            try:
+                run_pip("uninstall", "-y", "bitsandbytes")
+            except:
+                pass
     
-    print_info("Installing bitsandbytes with Windows pre-built binaries...")
+    print_info("Installing bitsandbytes 0.43.1 (stable version for Windows)...")
     
     try:
-        # Сначала пробуем официальный пакет (версии >= 0.43.0 имеют Windows поддержку)
-        run_pip("install", "bitsandbytes>=0.43.0", "--prefer-binary")
-        print_success("bitsandbytes installed successfully!")
-        return True
-    except subprocess.CalledProcessError:
-        print_warning("Official package failed, trying Windows-specific repository...")
-    
-    try:
-        # Fallback на специальный индекс с Windows binaries
-        run_pip("install", "bitsandbytes>=0.43.0", 
+        # Фиксированная стабильная версия 0.43.1 с Windows индексом
+        run_pip("install", "bitsandbytes==0.43.1", 
                 "--prefer-binary",
                 "--extra-index-url", BNB_WINDOWS_INDEX)
-        print_success("bitsandbytes installed from Windows repository!")
+        print_success("bitsandbytes 0.43.1 installed successfully!")
+        return True
+    except subprocess.CalledProcessError:
+        print_warning("Windows repository failed, trying official package...")
+    
+    try:
+        # Fallback на официальный пакет
+        run_pip("install", "bitsandbytes==0.43.1", "--prefer-binary")
+        print_success("bitsandbytes installed from official source!")
         return True
     except subprocess.CalledProcessError as e:
         print_error(f"Failed to install bitsandbytes: {e}")
-        print_warning("8-bit optimizers will not be available.")
+        print_info("TIP: Use Adafactor optimizer - it doesn't require bitsandbytes!")
         return False
 
 
