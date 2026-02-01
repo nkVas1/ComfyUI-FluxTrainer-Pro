@@ -4,7 +4,7 @@
   "nodes": [
     {
       "id": 1,
-      "type": "Flux2TrainModelSelect",
+      "type": "Flux2TrainModelPaths",
       "pos": [50, 50],
       "size": {"0": 350, "1": 200},
       "flags": {},
@@ -19,13 +19,13 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "Flux2TrainModelSelect"
+        "Node name for S&R": "Flux2TrainModelPaths"
       },
       "widgets_values": [
-        "flux2_klein_9b.safetensors",
-        "ae.safetensors",
-        "clip_l.safetensors",
-        "t5xxl_fp16.safetensors",
+        "path/to/flux2_klein_9b.safetensors",
+        "path/to/ae.safetensors",
+        "path/to/clip_l.safetensors",
+        "path/to/t5xxl_fp16.safetensors",
         ""
       ]
     },

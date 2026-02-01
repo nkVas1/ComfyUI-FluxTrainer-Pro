@@ -19,10 +19,8 @@ License: Apache-2.0
 import os
 import sys
 import json
-import toml
 import shlex
 import shutil
-import torch
 import time
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
@@ -36,6 +34,8 @@ IMPORTS_OK = True
 IMPORT_ERROR_MSG = ""
 
 try:
+    import toml
+    import torch
     from .flux_train_network_comfy import FluxNetworkTrainer
     from .train_network import setup_parser as train_network_setup_parser
     from .library import flux_train_utils, flux_utils, train_util
@@ -45,15 +45,24 @@ try:
         get_optimal_config_for_vram,
         aggressive_memory_cleanup
     )
-    from .library.device_utils import init_ipex, clean_memory_on_device
-    init_ipex()
+    
+    # [SENIOR FIX] IPEX is optional - specific to Intel GPUs
+    try:
+        from .library.device_utils import init_ipex, clean_memory_on_device
+        init_ipex()
+    except ImportError:
+        clean_memory_on_device = lambda *args, **kwargs: None
+    except Exception as ipex_err:
+        print(f"[ComfyUI-FluxTrainer-Pro] IPEX Init skipped: {ipex_err}")
+        clean_memory_on_device = lambda *args, **kwargs: None
 
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
+    # [SENIOR FIX] Matplotlib is optional - only needed for graphs
+    # Moved to lazy import inside classes that use it
 except Exception as e:
     IMPORTS_OK = False
     IMPORT_ERROR_MSG = str(e)
+    import traceback
+    traceback.print_exc()
     print(f"\n[ComfyUI-FluxTrainer-Pro] ❌ Critical Import Error: {e}")
     print("[ComfyUI-FluxTrainer-Pro] Check requirements.txt and installed packages.\n")
 # --------------------
@@ -89,11 +98,11 @@ class Flux2TrainModelSelect:
                 }),
             },
             "optional": {
+                # [SENIOR FIX] Removed forceInput=True to allow widget usage
                 "lora_path": ("STRING", {
                     "multiline": True, 
-                    "forceInput": True, 
                     "default": "", 
-                    "tooltip": "Pre-trained LoRA path to continue training from"
+                    "tooltip": "Pre-trained LoRA path to continue training from (optional)"
                 }),
             }
         }
@@ -131,6 +140,96 @@ class Flux2TrainModelSelect:
             "model_type": model_type
         }
         
+        return (flux2_models,)
+
+
+class Flux2TrainModelPaths:
+    """
+    Ручной ввод путей к моделям Flux.2.
+    Используйте, если файлы не лежат в стандартных папках ComfyUI.
+    """
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "transformer_path": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "tooltip": "Full path or filename in models/unet"
+                }),
+                "vae_path": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "tooltip": "Full path or filename in models/vae"
+                }),
+                "clip_l_path": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "tooltip": "Full path or filename in models/clip"
+                }),
+                "t5_path": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "tooltip": "Full path or filename in models/clip"
+                }),
+            },
+            "optional": {
+                "lora_path": ("STRING", {
+                    "multiline": True,
+                    "default": "",
+                    "tooltip": "Pre-trained LoRA path to continue training from"
+                }),
+            }
+        }
+
+    RETURN_TYPES = ("TRAIN_FLUX2_MODELS",)
+    RETURN_NAMES = ("flux2_models",)
+    FUNCTION = "loadmodel_paths"
+    CATEGORY = "FluxTrainer/Flux2"
+
+    def _resolve(self, path_value: str, folder_key: str) -> str:
+        if not path_value:
+            raise ValueError(f"Path is empty for {folder_key}")
+        if os.path.isabs(path_value) and os.path.exists(path_value):
+            return path_value
+        # Try resolve relative to ComfyUI models folders
+        resolved = folder_paths.get_full_path(folder_key, path_value)
+        if resolved and os.path.exists(resolved):
+            return resolved
+        # Fallback: direct path check (relative)
+        if os.path.exists(path_value):
+            return os.path.abspath(path_value)
+        raise FileNotFoundError(f"File not found: {path_value}")
+
+    def loadmodel_paths(self, transformer_path, vae_path, clip_l_path, t5_path, lora_path=""):
+        transformer_path = self._resolve(transformer_path, "unet")
+        vae_path = self._resolve(vae_path, "vae")
+        clip_path = self._resolve(clip_l_path, "clip")
+        t5_path = self._resolve(t5_path, "clip")
+
+        # Определяем тип модели
+        model_type = "auto"
+        try:
+            is_diffusers, is_schnell, (num_double, num_single), _ = flux_utils.analyze_checkpoint_state(transformer_path)
+            if num_double > 24 or num_single > 50:
+                model_type = "flux2_dev"
+                logger.info(f"Detected Flux.2 Dev model (blocks: {num_double}/{num_single})")
+            else:
+                model_type = "flux2_klein_9b"
+                logger.info(f"Detected Flux.2 Klein 9B model (blocks: {num_double}/{num_single})")
+        except Exception as e:
+            logger.warning(f"Could not auto-detect model type: {e}")
+
+        flux2_models = {
+            "transformer": transformer_path,
+            "vae": vae_path,
+            "clip_l": clip_path,
+            "t5": t5_path,
+            "lora_path": lora_path,
+            "model_type": model_type,
+        }
+
         return (flux2_models,)
 
 
@@ -926,6 +1025,7 @@ class Flux2MemoryEstimator:
 if IMPORTS_OK:
     NODE_CLASS_MAPPINGS = {
         "Flux2TrainModelSelect": Flux2TrainModelSelect,
+        "Flux2TrainModelPaths": Flux2TrainModelPaths,
         "Flux2LowVRAMConfig": Flux2LowVRAMConfig,
         "Flux2InitTraining": Flux2InitTraining,
         "Flux2TrainLoop": Flux2TrainLoop,
@@ -945,13 +1045,14 @@ else:
         def error(self): raise ImportError(f"Missing dependencies: {IMPORT_ERROR_MSG}")
     
     NODE_CLASS_MAPPINGS = {k: DependencyErrorNode for k in [
-        "Flux2TrainModelSelect", "Flux2LowVRAMConfig", "Flux2InitTraining", 
+        "Flux2TrainModelSelect", "Flux2TrainModelPaths", "Flux2LowVRAMConfig", "Flux2InitTraining", 
         "Flux2TrainLoop", "Flux2TrainAndValidateLoop", "Flux2TrainSave", 
         "Flux2TrainEnd", "Flux2TrainAdvancedSettings", "Flux2MemoryEstimator"
     ]}
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Flux2TrainModelSelect": "Flux.2 Model Select" if IMPORTS_OK else "⚠️ Flux.2 Model Select (Error)",
+    "Flux2TrainModelPaths": "Flux.2 Model Paths" if IMPORTS_OK else "⚠️ Flux.2 Model Paths (Error)",
     "Flux2LowVRAMConfig": "Flux.2 Low VRAM Config" if IMPORTS_OK else "⚠️ Flux.2 Low VRAM Config (Error)",
     "Flux2InitTraining": "Flux.2 Init Training" if IMPORTS_OK else "⚠️ Flux.2 Init Training (Error)",
     "Flux2TrainLoop": "Flux.2 Train Loop" if IMPORTS_OK else "⚠️ Flux.2 Train Loop (Error)",

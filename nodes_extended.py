@@ -27,11 +27,6 @@ from typing import Dict, Any, Optional, List, Tuple, Union
 from datetime import datetime, timedelta
 from collections import deque
 
-import torch
-import numpy as np
-from PIL import Image
-from torchvision import transforms
-
 import folder_paths
 import comfy.model_management as mm
 import comfy.utils
@@ -44,13 +39,17 @@ try:
     import numpy as np
     from PIL import Image
     from torchvision import transforms
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
     import io
+    
+    # [SENIOR FIX] Lazy import for matplotlib - moved inside classes that need it
+    # import matplotlib
+    # matplotlib.use('Agg')
+    # import matplotlib.pyplot as plt
 except Exception as e:
     IMPORTS_OK = False
     IMPORT_ERROR_MSG = str(e)
+    import traceback
+    traceback.print_exc()
     print(f"\n[ComfyUI-FluxTrainer-Pro] ❌ Critical Import Error (Extended Nodes): {e}")
 # --------------------
 
@@ -186,7 +185,9 @@ class DatasetPreviewGrid:
                     if os.path.exists(caption_path):
                         captions_found += 1
                         with open(caption_path, 'r', encoding='utf-8') as f:
-                            caption = f.read().strip()[:50] + '...' if len(f.read()) > 50 else f.read().strip()
+                            caption = f.read().strip()
+                        if len(caption) > 50:
+                            caption = caption[:50] + '...'
                         
                         draw = ImageDraw.Draw(grid)
                         text_x = col * image_size + 5
@@ -489,6 +490,11 @@ class MemoryMonitorDisplay:
     CATEGORY = "FluxTrainer/Utilities"
 
     def monitor(self, update_trigger, network_trainer=None):
+        # [SENIOR FIX] Import matplotlib locally
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        
         try:
             import psutil
         except ImportError:
@@ -571,10 +577,18 @@ class LossGraphAdvanced:
     
     @classmethod
     def INPUT_TYPES(s):
+        # [SENIOR FIX] Lazy import matplotlib for style list
+        try:
+            import matplotlib.pyplot as plt
+            styles = plt.style.available
+            default_style = 'seaborn-v0_8-darkgrid' if 'seaborn-v0_8-darkgrid' in styles else 'default'
+        except:
+            styles = ['default']
+            default_style = 'default'
         return {
             "required": {
                 "network_trainer": ("NETWORKTRAINER",),
-                "plot_style": (plt.style.available, {"default": 'seaborn-v0_8-darkgrid' if 'seaborn-v0_8-darkgrid' in plt.style.available else 'default'}),
+                "plot_style": (styles, {"default": default_style}),
                 "show_moving_avg": ("BOOLEAN", {"default": True}),
                 "moving_avg_window": ("INT", {"default": 100, "min": 10, "max": 1000}),
                 "show_min_max": ("BOOLEAN", {"default": True}),
@@ -591,6 +605,10 @@ class LossGraphAdvanced:
 
     def plot(self, network_trainer, plot_style, show_moving_avg, moving_avg_window,
              show_min_max, show_trend, width, height):
+        # [SENIOR FIX] Import matplotlib locally
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
         
         loss_list = network_trainer["network_trainer"].loss_recorder.global_loss_list
         

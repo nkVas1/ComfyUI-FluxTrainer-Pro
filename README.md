@@ -88,6 +88,9 @@ python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-FluxTra
    - `cpu_offload_optimizer`: true
 4. Set batch_size=1, gradient_accumulation=8
 
+> **Tip:** If you see **UNKNOWN** in dropdowns, the file is not in ComfyUI models folders.
+> Use **Flux.2 Model Paths** to paste full paths manually.
+
 ### 📊 VRAM Requirements
 
 | Model | Min VRAM | Recommended | Config |
@@ -143,6 +146,9 @@ python install.py
    - `optimizer_type`: adamw8bit
    - `cpu_offload_optimizer`: true
 4. Установите batch_size=1, gradient_accumulation=8
+
+> **Подсказка:** если в выпадающих списках видно **UNKNOWN**, значит файл отсутствует в папках моделей ComfyUI.
+> Используйте ноду **Flux.2 Model Paths** и вставляйте полный путь вручную.
 
 ### 📊 Требования к VRAM
 

@@ -1,6 +1,5 @@
 import os
-import torch
-from torchvision import transforms
+import copy  # [SENIOR FIX] For deep copying dicts to prevent mutation
 
 import folder_paths
 import comfy.model_management as mm
@@ -18,24 +17,34 @@ try:
     import torch
     import toml
     from torchvision import transforms
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    import io
     from PIL import Image
+    import io
+    
+    # [SENIOR FIX] Lazy import for matplotlib - moved inside VisualizeLoss
+    # import matplotlib ... 
 
     from .flux_train_network_comfy import FluxNetworkTrainer
-    from .library import flux_train_utils as  flux_train_utils
+    from .library import flux_train_utils as flux_train_utils
     from .flux_train_comfy import FluxTrainer
     from .flux_train_comfy import setup_parser as train_setup_parser
-    from .library.device_utils import init_ipex
-    init_ipex()
+    
+    # [SENIOR FIX] IPEX is optional and specific to Intel GPUs
+    try:
+        from .library.device_utils import init_ipex
+        init_ipex()
+    except ImportError:
+        pass
+    except Exception as ipex_err:
+        print(f"[ComfyUI-FluxTrainer-Pro] IPEX Init skipped: {ipex_err}")
 
     from .library import train_util
     from .train_network import setup_parser as train_network_setup_parser
 except Exception as e:
     IMPORTS_OK = False
     IMPORT_ERROR_MSG = str(e)
+    # [FIX] Better logging
+    import traceback
+    traceback.print_exc()
     print(f"\n[ComfyUI-FluxTrainer-Pro] ❌ Critical Import Error (Legacy Nodes): {e}")
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -188,6 +197,9 @@ class TrainDatasetAdd:
 
     def create_config(self, dataset_config, dataset_path, class_tokens, width, height, batch_size, num_repeats, enable_bucket,  
                   bucket_no_upscale, min_bucket_reso, max_bucket_reso, regularization=None):
+        
+        # [SENIOR FIX] Deep copy to prevent mutating the upstream dictionary (ComfyUI caching issue)
+        dataset_config = copy.deepcopy(dataset_config)
         
         new_dataset = {
             "resolution": (width, height),
@@ -1282,9 +1294,15 @@ class FluxTrainValidate:
 class VisualizeLoss:
     @classmethod
     def INPUT_TYPES(s):
+        # [SENIOR FIX] Lazy import matplotlib to get style list
+        try:
+            import matplotlib.pyplot as plt
+            styles = plt.style.available
+        except:
+            styles = ['default']
         return {"required": {
             "network_trainer": ("NETWORKTRAINER",),
-            "plot_style": (plt.style.available,{"default": 'default', "tooltip": "matplotlib plot style"}),
+            "plot_style": (styles, {"default": 'default', "tooltip": "matplotlib plot style"}),
             "window_size": ("INT", {"default": 100, "min": 0, "max": 10000, "step": 1, "tooltip": "the window size of the moving average"}),
             "normalize_y": ("BOOLEAN", {"default": True, "tooltip": "normalize the y-axis to 0"}),
             "width": ("INT", {"default": 768, "min": 256, "max": 4096, "step": 2, "tooltip": "width of the plot in pixels"}),
@@ -1299,7 +1317,12 @@ class VisualizeLoss:
     CATEGORY = "FluxTrainer"
 
     def draw(self, network_trainer, window_size, plot_style, normalize_y, width, height, log_scale):
+        # [SENIOR FIX] Import matplotlib locally to avoid hard dependency at module level
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
         import numpy as np
+        
         loss_values = network_trainer["network_trainer"].loss_recorder.global_loss_list
 
         # Apply moving average
