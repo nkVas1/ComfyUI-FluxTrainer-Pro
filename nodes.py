@@ -1,58 +1,151 @@
+"""
+ComfyUI-FluxTrainer-Pro v2.0.0 - Legacy Nodes Module
+=====================================================
+
+Основной модуль нод для тренировки Flux моделей.
+Использует LAZY IMPORTS для предотвращения ошибок при загрузке ComfyUI.
+
+АРХИТЕКТУРА LAZY IMPORTS:
+    Ноды ВСЕГДА регистрируются успешно. Тяжёлые зависимости (torch, toml, 
+    FluxNetworkTrainer и т.д.) загружаются ТОЛЬКО при вызове FUNCTION метода,
+    т.е. при нажатии "Queue Prompt".
+    
+    Это позволяет:
+    1. ComfyUI корректно отображать все ноды в UI
+    2. Пользователю видеть все доступные ноды
+    3. Ошибки зависимостей появляются только при попытке использования
+
+Author: ComfyUI-FluxTrainer-Pro Team
+License: Apache 2.0
+"""
+
 import os
 import copy  # [SENIOR FIX] For deep copying dicts to prevent mutation
-
-import folder_paths
-import comfy.model_management as mm
-import comfy.utils
 import json
 import time
 import shutil
 import shlex
-from pathlib import Path
-
-# --- Safe Imports ---
-IMPORTS_OK = True
-IMPORT_ERROR_MSG = ""
-try:
-    import torch
-    import toml
-    from torchvision import transforms
-    from PIL import Image
-    import io
-    
-    # [SENIOR FIX] Lazy import for matplotlib - moved inside VisualizeLoss
-    # import matplotlib ... 
-
-    from .flux_train_network_comfy import FluxNetworkTrainer
-    from .library import flux_train_utils as flux_train_utils
-    from .flux_train_comfy import FluxTrainer
-    from .flux_train_comfy import setup_parser as train_setup_parser
-    
-    # [SENIOR FIX] IPEX is optional and specific to Intel GPUs
-    try:
-        from .library.device_utils import init_ipex
-        init_ipex()
-    except ImportError:
-        pass
-    except Exception as ipex_err:
-        print(f"[ComfyUI-FluxTrainer-Pro] IPEX Init skipped: {ipex_err}")
-
-    from .library import train_util
-    from .train_network import setup_parser as train_network_setup_parser
-except Exception as e:
-    IMPORTS_OK = False
-    IMPORT_ERROR_MSG = str(e)
-    # [FIX] Better logging
-    import traceback
-    traceback.print_exc()
-    print(f"\n[ComfyUI-FluxTrainer-Pro] ❌ Critical Import Error (Legacy Nodes): {e}")
-
-script_directory = os.path.dirname(os.path.abspath(__file__))
-# --------------------
-
 import logging
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+# =============================================================================
+# БЕЗОПАСНЫЕ ИМПОРТЫ (Лёгкие модули, всегда доступны)
+# =============================================================================
+import folder_paths
+import comfy.model_management as mm
+import comfy.utils
+
+# Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Путь к директории скрипта
+script_directory = os.path.dirname(os.path.abspath(__file__))
+
+# =============================================================================
+# СИСТЕМА LAZY IMPORTS
+# =============================================================================
+# Кэш для загруженных модулей - избегаем повторных импортов
+_CACHED_MODULES: Dict[str, Any] = {}
+
+
+def _lazy_import_training() -> Dict[str, Any]:
+    """
+    Ленивый импорт ВСЕХ модулей, необходимых для тренировки.
+    
+    Вызывается ТОЛЬКО при Queue Prompt, не при загрузке файла.
+    Все модули кэшируются для последующих вызовов.
+    
+    Returns:
+        Dict с ключами: torch, toml, transforms, Image, io,
+                       FluxNetworkTrainer, flux_train_utils, FluxTrainer,
+                       train_setup_parser, train_util, train_network_setup_parser
+    
+    Raises:
+        ImportError: С понятным сообщением об ошибке на русском
+    """
+    if "training" in _CACHED_MODULES:
+        return _CACHED_MODULES["training"]
+    
+    try:
+        import torch
+        import toml
+        from torchvision import transforms
+        from PIL import Image
+        import io as io_module
+        
+        from .flux_train_network_comfy import FluxNetworkTrainer
+        from .library import flux_train_utils
+        from .flux_train_comfy import FluxTrainer
+        from .flux_train_comfy import setup_parser as train_setup_parser
+        from .library import train_util
+        from .train_network import setup_parser as train_network_setup_parser
+        
+        # IPEX опционален (для Intel GPU)
+        try:
+            from .library.device_utils import init_ipex
+            init_ipex()
+        except ImportError:
+            pass
+        except Exception as ipex_err:
+            logger.debug(f"IPEX Init skipped: {ipex_err}")
+        
+        modules = {
+            "torch": torch,
+            "toml": toml,
+            "transforms": transforms,
+            "Image": Image,
+            "io": io_module,
+            "FluxNetworkTrainer": FluxNetworkTrainer,
+            "flux_train_utils": flux_train_utils,
+            "FluxTrainer": FluxTrainer,
+            "train_setup_parser": train_setup_parser,
+            "train_util": train_util,
+            "train_network_setup_parser": train_network_setup_parser,
+        }
+        
+        _CACHED_MODULES["training"] = modules
+        logger.info("[ComfyUI-FluxTrainer-Pro] ✅ Training modules loaded successfully")
+        return modules
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise ImportError(
+            f"❌ Ошибка загрузки тренировочных модулей: {e}\n\n"
+            f"Возможные причины:\n"
+            f"1. Embedded Python ComfyUI не имеет Python.h для компиляции bitsandbytes/triton\n"
+            f"2. Отсутствуют зависимости - выполните: pip install -r requirements.txt\n"
+            f"3. Несовместимая версия PyTorch\n\n"
+            f"Решение: Используйте полную установку Python с pip install torch torchvision"
+        ) from e
+
+
+def _lazy_import_flux_utils() -> Dict[str, Any]:
+    """
+    Ленивый импорт flux_utils для операций с моделями.
+    Легче чем полный training импорт.
+    """
+    if "flux_utils" in _CACHED_MODULES:
+        return _CACHED_MODULES["flux_utils"]
+    
+    try:
+        from .library import flux_utils
+        from .library import strategy_flux
+        from .networks import lora_flux
+        
+        modules = {
+            "flux_utils": flux_utils,
+            "strategy_flux": strategy_flux,
+            "lora_flux": lora_flux,
+        }
+        
+        _CACHED_MODULES["flux_utils"] = modules
+        return modules
+        
+    except Exception as e:
+        raise ImportError(f"❌ Ошибка загрузки flux_utils: {e}") from e
 
 class FluxTrainModelSelect:
     @classmethod
@@ -523,6 +616,14 @@ class InitFluxLoRATraining:
     def init_training(self, flux_models, dataset, optimizer_settings, sample_prompts, output_name, attention_mode, 
                       gradient_dtype, save_dtype, additional_args=None, resume_args=None, train_text_encoder='disabled', 
                       block_args=None, gradient_checkpointing="enabled", prompt=None, extra_pnginfo=None, clip_l_lr=0, T5_lr=0, loss_args=None, network_config=None, **kwargs):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        toml = modules["toml"]
+        FluxNetworkTrainer = modules["FluxNetworkTrainer"]
+        flux_train_utils = modules["flux_train_utils"]
+        train_network_setup_parser = modules["train_network_setup_parser"]
+        
         mm.soft_empty_cache()
         
         output_dir = os.path.abspath(kwargs.get("output_dir"))
@@ -729,6 +830,14 @@ class InitFluxTraining:
 
     def init_training(self, flux_models, optimizer_settings, dataset, sample_prompts, output_name, 
                       attention_mode, gradient_dtype, save_dtype, optimizer_fusing, additional_args=None, resume_args=None, **kwargs,):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        toml = modules["toml"]
+        FluxTrainer = modules["FluxTrainer"]
+        flux_train_utils = modules["flux_train_utils"]
+        train_setup_parser = modules["train_setup_parser"]
+        
         mm.soft_empty_cache()
 
         output_dir = os.path.abspath(kwargs.get("output_dir"))
@@ -863,6 +972,13 @@ class InitFluxTrainingFromPreset:
     CATEGORY = "FluxTrainer"
 
     def init_training(self, flux_models, dataset_settings, sample_prompts, output_name, preset_args, **kwargs,):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        toml = modules["toml"]
+        FluxNetworkTrainer = modules["FluxNetworkTrainer"]
+        train_setup_parser = modules["train_setup_parser"]
+        
         mm.soft_empty_cache()
 
         dataset = dataset_settings["dataset"]
@@ -935,6 +1051,10 @@ class FluxTrainLoop:
     CATEGORY = "FluxTrainer"
 
     def train(self, network_trainer, steps):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        
         with torch.inference_mode(False):
             training_loop = network_trainer["training_loop"]
             network_trainer = network_trainer["network_trainer"]
@@ -982,6 +1102,10 @@ class FluxTrainAndValidateLoop:
     CATEGORY = "FluxTrainer"
 
     def train(self, network_trainer, validate_at_steps, save_at_steps, validation_settings=None):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        
         with torch.inference_mode(False):
             training_loop = network_trainer["training_loop"]
             network_trainer = network_trainer["network_trainer"]
@@ -1007,7 +1131,7 @@ class FluxTrainAndValidateLoop:
 
                 # Check if we need to save
                 if network_trainer.global_step % save_at_steps == 0:
-                    self.save(network_trainer)
+                    self._save_checkpoint(network_trainer)
 
                 # Also break if the global steps have reached the max train steps
                 if network_trainer.global_step >= network_trainer.args.max_train_steps:
@@ -1030,7 +1154,11 @@ class FluxTrainAndValidateLoop:
         network_trainer.optimizer_train_fn()
         print("Validating at step:", network_trainer.global_step)
 
-    def save(self, network_trainer):
+    def _save_checkpoint(self, network_trainer):
+        # LAZY IMPORT для train_util
+        modules = _lazy_import_training()
+        train_util = modules["train_util"]
+        
         ckpt_name = train_util.get_step_ckpt_name(network_trainer.args, "." + network_trainer.args.save_model_as, network_trainer.global_step)
         network_trainer.optimizer_eval_fn()
         network_trainer.save_model(ckpt_name, network_trainer.accelerator.unwrap_model(network_trainer.network), network_trainer.global_step, network_trainer.current_epoch.value + 1)
@@ -1053,6 +1181,11 @@ class FluxTrainSave:
     CATEGORY = "FluxTrainer"
 
     def save(self, network_trainer, save_state, copy_to_comfy_lora_folder):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        train_util = modules["train_util"]
+        
         import shutil
         with torch.inference_mode(False):
             trainer = network_trainer["network_trainer"]
@@ -1094,6 +1227,12 @@ class FluxTrainSaveModel:
     CATEGORY = "FluxTrainer"
 
     def save(self, network_trainer, copy_to_comfy_model_folder, end_training):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        train_util = modules["train_util"]
+        flux_train_utils = modules["flux_train_utils"]
+        
         import shutil
         with torch.inference_mode(False):
             trainer = network_trainer["network_trainer"]
@@ -1138,6 +1277,11 @@ class FluxTrainEnd:
     OUTPUT_NODE = True
 
     def endtrain(self, network_trainer, save_state):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        train_util = modules["train_util"]
+        
         with torch.inference_mode(False):
             training_loop = network_trainer["training_loop"]
             network_trainer = network_trainer["network_trainer"]
@@ -1289,6 +1433,10 @@ class FluxTrainValidate:
     CATEGORY = "FluxTrainer"
 
     def validate(self, network_trainer, validation_settings=None):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        
         training_loop = network_trainer["training_loop"]
         network_trainer = network_trainer["network_trainer"]
 
@@ -1333,6 +1481,12 @@ class VisualizeLoss:
     CATEGORY = "FluxTrainer"
 
     def draw(self, network_trainer, window_size, plot_style, normalize_y, width, height, log_scale):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        transforms = modules["transforms"]
+        Image = modules["Image"]
+        io_module = modules["io"]
+        
         # [SENIOR FIX] Import matplotlib locally to avoid hard dependency at module level
         import matplotlib
         matplotlib.use('Agg')
@@ -1366,7 +1520,7 @@ class VisualizeLoss:
         ax.legend()
         ax.grid(True)
 
-        buf = io.BytesIO()
+        buf = io_module.BytesIO()
         plt.savefig(buf, format='png')
         plt.close(fig)
         buf.seek(0)
@@ -1403,10 +1557,15 @@ class FluxKohyaInferenceSampler:
     CATEGORY = "FluxTrainer"
 
     def sample(self, flux_models, lora_name, steps, width, height, guidance_scale, seed, prompt, use_fp8, lora_method, apply_t5_attn_mask):
-
-        from .library import flux_utils as flux_utils
-        from .library import strategy_flux as strategy_flux
-        from .networks import lora_flux as lora_flux
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        
+        flux_modules = _lazy_import_flux_utils()
+        flux_utils = flux_modules["flux_utils"]
+        strategy_flux = flux_modules["strategy_flux"]
+        lora_flux = flux_modules["lora_flux"]
+        
         from typing import List, Optional, Callable
         from tqdm import tqdm
         import einops
@@ -1676,6 +1835,10 @@ class UploadToHuggingFace:
     CATEGORY = "FluxTrainer"
 
     def upload(self, source_path, network_trainer, repo_id, private, revision, token=""):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        
         with torch.inference_mode(False):
             from huggingface_hub import HfApi
             
@@ -1797,24 +1960,27 @@ class ExtractFluxLoRA:
 # =============================================================================
 # NODE MAPPINGS
 # =============================================================================
-if IMPORTS_OK:
-    NODE_CLASS_MAPPINGS = {
-        "InitFluxLoRATraining": InitFluxLoRATraining,
-        "InitFluxTraining": InitFluxTraining,
-        "FluxTrainModelSelect": FluxTrainModelSelect,
-        "TrainDatasetGeneralConfig": TrainDatasetGeneralConfig,
-        "TrainDatasetAdd": TrainDatasetAdd,
-        "FluxTrainLoop": FluxTrainLoop,
-        "VisualizeLoss": VisualizeLoss,
-        "FluxTrainValidate": FluxTrainValidate,
-        "FluxTrainValidationSettings": FluxTrainValidationSettings,
-        "FluxTrainEnd": FluxTrainEnd,
-        "FluxTrainSave": FluxTrainSave,
-        "FluxKohyaInferenceSampler": FluxKohyaInferenceSampler,
-        "UploadToHuggingFace": UploadToHuggingFace,
-        "OptimizerConfig": OptimizerConfig,
-        "OptimizerConfigAdafactor": OptimizerConfigAdafactor,
-        "FluxTrainSaveModel": FluxTrainSaveModel,
+# КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Ноды ВСЕГДА регистрируются!
+# Ошибки зависимостей появятся только при Queue Prompt, а не при загрузке.
+# Это позволяет ComfyUI корректно отображать все ноды в UI.
+
+NODE_CLASS_MAPPINGS = {
+    "InitFluxLoRATraining": InitFluxLoRATraining,
+    "InitFluxTraining": InitFluxTraining,
+    "FluxTrainModelSelect": FluxTrainModelSelect,
+    "TrainDatasetGeneralConfig": TrainDatasetGeneralConfig,
+    "TrainDatasetAdd": TrainDatasetAdd,
+    "FluxTrainLoop": FluxTrainLoop,
+    "VisualizeLoss": VisualizeLoss,
+    "FluxTrainValidate": FluxTrainValidate,
+    "FluxTrainValidationSettings": FluxTrainValidationSettings,
+    "FluxTrainEnd": FluxTrainEnd,
+    "FluxTrainSave": FluxTrainSave,
+    "FluxKohyaInferenceSampler": FluxKohyaInferenceSampler,
+    "UploadToHuggingFace": UploadToHuggingFace,
+    "OptimizerConfig": OptimizerConfig,
+    "OptimizerConfigAdafactor": OptimizerConfigAdafactor,
+    "FluxTrainSaveModel": FluxTrainSaveModel,
         "ExtractFluxLoRA": ExtractFluxLoRA,
         "OptimizerConfigProdigy": OptimizerConfigProdigy,
         "FluxTrainResume": FluxTrainResume,
@@ -1824,52 +1990,37 @@ if IMPORTS_OK:
         "OptimizerConfigProdigyPlusScheduleFree": OptimizerConfigProdigyPlusScheduleFree,
         "FluxTrainerLossConfig": FluxTrainerLossConfig,
         "TrainNetworkConfig": TrainNetworkConfig,
-    }
-else:
-    class DependencyErrorNodeLegacy:
-        @classmethod
-        def INPUT_TYPES(s): return {"required": {}}
-        RETURN_TYPES = ()
-        FUNCTION = "error"
-        CATEGORY = "FluxTrainer"
-        def error(self): raise ImportError(f"Missing dependencies: {IMPORT_ERROR_MSG}")
-
-    NODE_CLASS_MAPPINGS = {k: DependencyErrorNodeLegacy for k in [
-        "InitFluxLoRATraining", "InitFluxTraining", "FluxTrainModelSelect",
-        "TrainDatasetGeneralConfig", "TrainDatasetAdd", "FluxTrainLoop",
-        "VisualizeLoss", "FluxTrainValidate", "FluxTrainValidationSettings",
-        "FluxTrainEnd", "FluxTrainSave", "FluxKohyaInferenceSampler",
-        "UploadToHuggingFace", "OptimizerConfig", "OptimizerConfigAdafactor",
-        "FluxTrainSaveModel", "ExtractFluxLoRA", "OptimizerConfigProdigy",
-        "FluxTrainResume", "FluxTrainBlockSelect", "TrainDatasetRegularization",
-        "FluxTrainAndValidateLoop", "OptimizerConfigProdigyPlusScheduleFree",
-        "FluxTrainerLossConfig", "TrainNetworkConfig"
-    ]}
+    "InitFluxTrainingFromPreset": InitFluxTrainingFromPreset,
+}
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "InitFluxLoRATraining": "Init Flux LoRA Training" if IMPORTS_OK else "⚠️ Init Flux LoRA (Error)",
-    "InitFluxTraining": "Init Flux Training" if IMPORTS_OK else "⚠️ Init Flux Training (Error)",
-    "FluxTrainModelSelect": "FluxTrain ModelSelect" if IMPORTS_OK else "⚠️ Model Select (Error)",
-    "TrainDatasetGeneralConfig": "TrainDatasetGeneralConfig" if IMPORTS_OK else "⚠️ Dataset Config (Error)",
-    "TrainDatasetAdd": "TrainDatasetAdd" if IMPORTS_OK else "⚠️ Dataset Add (Error)",
-    "FluxTrainLoop": "Flux Train Loop" if IMPORTS_OK else "⚠️ Train Loop (Error)",
-    "VisualizeLoss": "Visualize Loss" if IMPORTS_OK else "⚠️ Visualize Loss (Error)",
-    "FluxTrainValidate": "Flux Train Validate" if IMPORTS_OK else "⚠️ Validate (Error)",
-    "FluxTrainValidationSettings": "Flux Train Validation Settings" if IMPORTS_OK else "⚠️ Val Settings (Error)",
-    "FluxTrainEnd": "Flux LoRA Train End" if IMPORTS_OK else "⚠️ Train End (Error)",
-    "FluxTrainSave": "Flux Train Save LoRA" if IMPORTS_OK else "⚠️ Train Save (Error)",
-    "FluxKohyaInferenceSampler": "Flux Kohya Inference Sampler" if IMPORTS_OK else "⚠️ Inference Sampler (Error)",
-    "UploadToHuggingFace": "Upload To HuggingFace" if IMPORTS_OK else "⚠️ Upload HF (Error)",
-    "OptimizerConfig": "Optimizer Config" if IMPORTS_OK else "⚠️ Optimizer Config (Error)",
-    "OptimizerConfigAdafactor": "Optimizer Config Adafactor" if IMPORTS_OK else "⚠️ Opt Adafactor (Error)",
-    "FluxTrainSaveModel": "Flux Train Save Model" if IMPORTS_OK else "⚠️ Save Model (Error)",
-    "ExtractFluxLoRA": "Extract Flux LoRA" if IMPORTS_OK else "⚠️ Extract LoRA (Error)",
-    "OptimizerConfigProdigy": "Optimizer Config Prodigy" if IMPORTS_OK else "⚠️ Opt Prodigy (Error)",
-    "FluxTrainResume": "Flux Train Resume" if IMPORTS_OK else "⚠️ Train Resume (Error)",
-    "FluxTrainBlockSelect": "Flux Train Block Select" if IMPORTS_OK else "⚠️ Block Select (Error)",
-    "TrainDatasetRegularization": "Train Dataset Regularization" if IMPORTS_OK else "⚠️ Dataset Reg (Error)",
-    "FluxTrainAndValidateLoop": "Flux Train And Validate Loop" if IMPORTS_OK else "⚠️ Train & Val Loop (Error)",
-    "OptimizerConfigProdigyPlusScheduleFree": "Optimizer Config ProdigyPlusScheduleFree" if IMPORTS_OK else "⚠️ Opt Prodigy+ (Error)",
-    "FluxTrainerLossConfig": "Flux Trainer Loss Config" if IMPORTS_OK else "⚠️ Loss Config (Error)",
-    "TrainNetworkConfig": "Train Network Config" if IMPORTS_OK else "⚠️ Net Config (Error)",
+    "InitFluxLoRATraining": "🔄 Init Flux LoRA Training",
+    "InitFluxTraining": "🔄 Init Flux Training",
+    "InitFluxTrainingFromPreset": "📋 Init Flux From Preset",
+    "FluxTrainModelSelect": "📦 Flux Model Select",
+    "TrainDatasetGeneralConfig": "⚙️ Dataset General Config",
+    "TrainDatasetAdd": "➕ Dataset Add",
+    "TrainDatasetRegularization": "🎯 Dataset Regularization",
+    "FluxTrainLoop": "🔄 Flux Train Loop",
+    "FluxTrainAndValidateLoop": "🔄✅ Train & Validate Loop",
+    "VisualizeLoss": "📊 Visualize Loss",
+    "FluxTrainValidate": "✅ Flux Validate",
+    "FluxTrainValidationSettings": "⚙️ Validation Settings",
+    "FluxTrainEnd": "🏁 Flux Train End",
+    "FluxTrainSave": "💾 Save LoRA",
+    "FluxTrainSaveModel": "💾 Save Model",
+    "FluxKohyaInferenceSampler": "🖼️ Kohya Inference Sampler",
+    "UploadToHuggingFace": "☁️ Upload to HuggingFace",
+    "OptimizerConfig": "⚙️ Optimizer Config",
+    "OptimizerConfigAdafactor": "⚙️ Optimizer Adafactor",
+    "OptimizerConfigProdigy": "⚙️ Optimizer Prodigy",
+    "OptimizerConfigProdigyPlusScheduleFree": "⚙️ Optimizer Prodigy+ScheduleFree",
+    "FluxTrainerLossConfig": "📈 Loss Config",
+    "TrainNetworkConfig": "🧠 Network Config",
+    "ExtractFluxLoRA": "📤 Extract LoRA",
+    "FluxTrainResume": "⏯️ Resume Training",
+    "FluxTrainBlockSelect": "🧱 Block Select",
 }
+
+# Log registration
+logger.info(f"[ComfyUI-FluxTrainer-Pro] Registered {len(NODE_CLASS_MAPPINGS)} legacy nodes (lazy imports enabled)")

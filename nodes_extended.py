@@ -11,6 +11,10 @@ ComfyUI Extended Utility Nodes for FluxTrainer-Pro
 - Управление чекпоинтами
 - Мониторинг памяти
 
+АРХИТЕКТУРА LAZY IMPORTS:
+    Ноды ВСЕГДА регистрируются успешно. Тяжёлые зависимости загружаются
+    ТОЛЬКО при вызове FUNCTION метода (Queue Prompt).
+
 Author: ComfyUI-FluxTrainer-Pro Team
 License: Apache-2.0
 """
@@ -31,33 +35,44 @@ import folder_paths
 import comfy.model_management as mm
 import comfy.utils
 
-# --- Safe Imports ---
-IMPORTS_OK = True
-IMPORT_ERROR_MSG = ""
-try:
-    import torch
-    import numpy as np
-    from PIL import Image
-    from torchvision import transforms
-    import io
-    
-    # [SENIOR FIX] Lazy import for matplotlib - moved inside classes that need it
-    # import matplotlib
-    # matplotlib.use('Agg')
-    # import matplotlib.pyplot as plt
-except Exception as e:
-    IMPORTS_OK = False
-    IMPORT_ERROR_MSG = str(e)
-    import traceback
-    traceback.print_exc()
-    print(f"\n[ComfyUI-FluxTrainer-Pro] ❌ Critical Import Error (Extended Nodes): {e}")
-# --------------------
-
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
+
+# =============================================================================
+# LAZY IMPORT SYSTEM
+# =============================================================================
+_CACHED_MODULES: Dict[str, Any] = {}
+
+
+def _lazy_import_extended() -> Dict[str, Any]:
+    """Ленивый импорт модулей для extended nodes."""
+    if "extended" in _CACHED_MODULES:
+        return _CACHED_MODULES["extended"]
+    
+    try:
+        import torch
+        import numpy as np
+        from PIL import Image
+        from torchvision import transforms
+        import io as io_module
+        
+        modules = {
+            "torch": torch,
+            "np": np,
+            "Image": Image,
+            "transforms": transforms,
+            "io": io_module,
+        }
+        
+        _CACHED_MODULES["extended"] = modules
+        logger.info("[ComfyUI-FluxTrainer-Pro] ✅ Extended modules loaded")
+        return modules
+        
+    except Exception as e:
+        raise ImportError(f"❌ Ошибка загрузки extended модулей: {e}") from e
 
 
 # =============================================================================
@@ -918,49 +933,40 @@ class PresetManager:
 # =============================================================================
 # NODE MAPPINGS
 # =============================================================================
-if IMPORTS_OK:
-    NODE_CLASS_MAPPINGS = {
-        # Dataset utilities
-        "DatasetPreviewGrid": DatasetPreviewGrid,
-        "DatasetValidator": DatasetValidator,
-        
-        # Training progress
-        "TrainingProgressDisplay": TrainingProgressDisplay,
-        "MemoryMonitorDisplay": MemoryMonitorDisplay,
-        "LossGraphAdvanced": LossGraphAdvanced,
-        
-        # Model utilities
-        "LoRAMerger": LoRAMerger,
-        "CheckpointManager": CheckpointManager,
-        "PresetManager": PresetManager,
-    }
-else:
-    class DependencyErrorNodeExtended:
-        @classmethod
-        def INPUT_TYPES(s): return {"required": {}}
-        RETURN_TYPES = ()
-        FUNCTION = "error"
-        CATEGORY = "FluxTrainer/Utilities"
-        def error(self): raise ImportError(f"Missing dependencies: {IMPORT_ERROR_MSG}")
+# КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Ноды ВСЕГДА регистрируются!
+# Ошибки зависимостей появятся только при Queue Prompt, а не при загрузке.
 
-    NODE_CLASS_MAPPINGS = {k: DependencyErrorNodeExtended for k in [
-         "DatasetPreviewGrid", "DatasetValidator", "TrainingProgressDisplay", 
-         "MemoryMonitorDisplay", "LossGraphAdvanced", "LoRAMerger", 
-         "CheckpointManager", "PresetManager"
-    ]}
+NODE_CLASS_MAPPINGS = {
+    # Dataset utilities
+    "DatasetPreviewGrid": DatasetPreviewGrid,
+    "DatasetValidator": DatasetValidator,
+    
+    # Training progress
+    "TrainingProgressDisplay": TrainingProgressDisplay,
+    "MemoryMonitorDisplay": MemoryMonitorDisplay,
+    "LossGraphAdvanced": LossGraphAdvanced,
+    
+    # Model utilities
+    "LoRAMerger": LoRAMerger,
+    "CheckpointManager": CheckpointManager,
+    "PresetManager": PresetManager,
+}
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     # Dataset utilities
-    "DatasetPreviewGrid": "📸 Dataset Preview Grid" if IMPORTS_OK else "⚠️ Dataset Preview (Error)",
-    "DatasetValidator": "✅ Dataset Validator" if IMPORTS_OK else "⚠️ Dataset Validator (Error)",
+    "DatasetPreviewGrid": "📸 Dataset Preview Grid",
+    "DatasetValidator": "✅ Dataset Validator",
     
     # Training progress  
-    "TrainingProgressDisplay": "📊 Training Progress" if IMPORTS_OK else "⚠️ Training Progress (Error)",
-    "MemoryMonitorDisplay": "💾 Memory Monitor" if IMPORTS_OK else "⚠️ Memory Monitor (Error)",
-    "LossGraphAdvanced": "📈 Advanced Loss Graph" if IMPORTS_OK else "⚠️ Loss Graph (Error)",
+    "TrainingProgressDisplay": "📊 Training Progress",
+    "MemoryMonitorDisplay": "💾 Memory Monitor",
+    "LossGraphAdvanced": "📈 Advanced Loss Graph",
     
     # Model utilities
-    "LoRAMerger": "🔀 LoRA Merger" if IMPORTS_OK else "⚠️ LoRA Merger (Error)",
-    "CheckpointManager": "📁 Checkpoint Manager" if IMPORTS_OK else "⚠️ Checkpoint Manager (Error)",
-    "PresetManager": "⚙️ Preset Manager" if IMPORTS_OK else "⚠️ Preset Manager (Error)",
+    "LoRAMerger": "🔀 LoRA Merger",
+    "CheckpointManager": "📁 Checkpoint Manager",
+    "PresetManager": "⚙️ Preset Manager",
 }
+
+# Log registration
+logger.info(f"[ComfyUI-FluxTrainer-Pro] Registered {len(NODE_CLASS_MAPPINGS)} extended nodes (lazy imports enabled)")

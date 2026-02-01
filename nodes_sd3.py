@@ -1,28 +1,73 @@
-import os
-import torch
+"""
+ComfyUI-FluxTrainer-Pro - SD3 Nodes Module
+==========================================
 
-import folder_paths
-import comfy.model_management as mm
-import comfy.utils
-import toml
+АРХИТЕКТУРА LAZY IMPORTS:
+    Ноды ВСЕГДА регистрируются успешно. Тяжёлые зависимости загружаются
+    ТОЛЬКО при вызове FUNCTION метода (Queue Prompt).
+
+Author: ComfyUI-FluxTrainer-Pro Team
+License: Apache 2.0
+"""
+
+import os
 import json
 import time
 import shutil
 import shlex
+from typing import Dict, Any
 
-script_directory = os.path.dirname(os.path.abspath(__file__))
-
-from .sd3_train_network import Sd3NetworkTrainer
-from .library import sd3_train_utils as  sd3_train_utils
-from .library.device_utils import init_ipex
-init_ipex()
-
-from .library import train_util
-from .train_network import setup_parser as train_network_setup_parser
+import folder_paths
+import comfy.model_management as mm
+import comfy.utils
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+script_directory = os.path.dirname(os.path.abspath(__file__))
+
+# =============================================================================
+# LAZY IMPORT SYSTEM
+# =============================================================================
+_CACHED_MODULES: Dict[str, Any] = {}
+
+
+def _lazy_import_sd3_training() -> Dict[str, Any]:
+    """Ленивый импорт модулей для SD3 тренировки."""
+    if "sd3_training" in _CACHED_MODULES:
+        return _CACHED_MODULES["sd3_training"]
+    
+    try:
+        import torch
+        import toml
+        
+        from .sd3_train_network import Sd3NetworkTrainer
+        from .library import sd3_train_utils
+        from .library import train_util
+        from .train_network import setup_parser as train_network_setup_parser
+        
+        try:
+            from .library.device_utils import init_ipex
+            init_ipex()
+        except:
+            pass
+        
+        modules = {
+            "torch": torch,
+            "toml": toml,
+            "Sd3NetworkTrainer": Sd3NetworkTrainer,
+            "sd3_train_utils": sd3_train_utils,
+            "train_util": train_util,
+            "train_network_setup_parser": train_network_setup_parser,
+        }
+        
+        _CACHED_MODULES["sd3_training"] = modules
+        logger.info("[ComfyUI-FluxTrainer-Pro] ✅ SD3 training modules loaded")
+        return modules
+        
+    except Exception as e:
+        raise ImportError(f"❌ Ошибка загрузки SD3 модулей: {e}") from e
 
 class SD3ModelSelect:
     @classmethod

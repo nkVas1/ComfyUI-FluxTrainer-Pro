@@ -11,8 +11,9 @@ ComfyUI Nodes for Flux.2 Training
 - Настраиваемые стратегии экономии памяти
 - Поддержка CPU offloading
 - Полная интеграция с существующей системой FluxTrainer
+- LAZY IMPORTS - ноды загружаются даже если зависимости недоступны
 
-Author: ComfyUI-FluxTrainer Team
+Author: ComfyUI-FluxTrainer-Pro Team
 License: Apache-2.0
 """
 
@@ -22,56 +23,110 @@ import json
 import shlex
 import shutil
 import time
+import logging
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, Callable
 
 import folder_paths
 import comfy.model_management as mm
 import comfy.utils
 
-# --- Safe Imports ---
-IMPORTS_OK = True
-IMPORT_ERROR_MSG = ""
-
-try:
-    import toml
-    import torch
-    from .flux_train_network_comfy import FluxNetworkTrainer
-    from .train_network import setup_parser as train_network_setup_parser
-    from .library import flux_train_utils, flux_utils, train_util
-    from .library.low_vram_utils import (
-        LowVRAMConfig, 
-        OffloadStrategy, 
-        get_optimal_config_for_vram,
-        aggressive_memory_cleanup
-    )
-    
-    # [SENIOR FIX] IPEX is optional - specific to Intel GPUs
-    try:
-        from .library.device_utils import init_ipex, clean_memory_on_device
-        init_ipex()
-    except ImportError:
-        clean_memory_on_device = lambda *args, **kwargs: None
-    except Exception as ipex_err:
-        print(f"[ComfyUI-FluxTrainer-Pro] IPEX Init skipped: {ipex_err}")
-        clean_memory_on_device = lambda *args, **kwargs: None
-
-    # [SENIOR FIX] Matplotlib is optional - only needed for graphs
-    # Moved to lazy import inside classes that use it
-except Exception as e:
-    IMPORTS_OK = False
-    IMPORT_ERROR_MSG = str(e)
-    import traceback
-    traceback.print_exc()
-    print(f"\n[ComfyUI-FluxTrainer-Pro] ❌ Critical Import Error: {e}")
-    print("[ComfyUI-FluxTrainer-Pro] Check requirements.txt and installed packages.\n")
-# --------------------
-
-import logging
+# Настройка логгера
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
+
+# =============================================================================
+# LAZY IMPORT SYSTEM - Ключевое решение для стабильной загрузки
+# =============================================================================
+# Кэш для загруженных модулей - загружаем один раз при первом использовании
+_CACHED_MODULES: Dict[str, Any] = {}
+_IMPORT_ERROR: Optional[str] = None
+
+
+def _lazy_import_flux_utils():
+    """Загружает только flux_utils для анализа моделей (легкая зависимость)."""
+    if "flux_utils" in _CACHED_MODULES:
+        return _CACHED_MODULES["flux_utils"]
+    
+    try:
+        from .library import flux_utils
+        _CACHED_MODULES["flux_utils"] = flux_utils
+        return flux_utils
+    except Exception as e:
+        logger.warning(f"Could not import flux_utils: {e}")
+        return None
+
+
+def _lazy_import_training():
+    """
+    Загружает тяжелые модули обучения ТОЛЬКО когда они реально нужны.
+    Это предотвращает падение ComfyUI при старте из-за ошибок в diffusers/triton/bitsandbytes.
+    
+    Ошибка появится ТОЛЬКО при нажатии Queue Prompt, а не при загрузке нод!
+    """
+    global _IMPORT_ERROR
+    
+    if "FluxNetworkTrainer" in _CACHED_MODULES:
+        return _CACHED_MODULES
+    
+    try:
+        import toml
+        import torch
+        from .flux_train_network_comfy import FluxNetworkTrainer
+        from .train_network import setup_parser as train_network_setup_parser
+        from .library import flux_train_utils, flux_utils, train_util
+        from .library.low_vram_utils import (
+            LowVRAMConfig, 
+            OffloadStrategy, 
+            get_optimal_config_for_vram,
+            aggressive_memory_cleanup
+        )
+        
+        # IPEX (Intel GPU) - строго опционально
+        clean_memory_on_device: Callable = lambda *args, **kwargs: None
+        try:
+            from .library.device_utils import init_ipex, clean_memory_on_device as _clean
+            init_ipex()
+            clean_memory_on_device = _clean
+        except ImportError:
+            pass
+        except Exception as ipex_err:
+            logger.debug(f"IPEX not available: {ipex_err}")
+        
+        _CACHED_MODULES.update({
+            "toml": toml,
+            "torch": torch,
+            "FluxNetworkTrainer": FluxNetworkTrainer,
+            "train_network_setup_parser": train_network_setup_parser,
+            "flux_train_utils": flux_train_utils,
+            "flux_utils": flux_utils,
+            "train_util": train_util,
+            "LowVRAMConfig": LowVRAMConfig,
+            "OffloadStrategy": OffloadStrategy,
+            "get_optimal_config_for_vram": get_optimal_config_for_vram,
+            "aggressive_memory_cleanup": aggressive_memory_cleanup,
+            "clean_memory_on_device": clean_memory_on_device,
+        })
+        
+        logger.info("[Flux2] Training modules loaded successfully")
+        return _CACHED_MODULES
+        
+    except Exception as e:
+        _IMPORT_ERROR = str(e)
+        import traceback
+        traceback.print_exc()
+        error_msg = (
+            f"Training dependency error: {e}\n\n"
+            "Возможные причины:\n"
+            "1. Отсутствует Python.h (embedded Python не поддерживает компиляцию)\n"
+            "2. Проблемы с triton/bitsandbytes\n"
+            "3. Несовместимая версия torch\n\n"
+            "Решение: используйте полную установку Python, не embedded/portable."
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
 
 class Flux2TrainModelSelect:
@@ -98,7 +153,6 @@ class Flux2TrainModelSelect:
                 }),
             },
             "optional": {
-                # [SENIOR FIX] Removed forceInput=True to allow widget usage
                 "lora_path": ("STRING", {
                     "multiline": True, 
                     "default": "", 
@@ -113,6 +167,9 @@ class Flux2TrainModelSelect:
     CATEGORY = "FluxTrainer/Flux2"
 
     def loadmodel(self, transformer, vae, clip_l, t5, lora_path=""):
+        # LAZY IMPORT - загружаем только при использовании
+        flux_utils = _lazy_import_flux_utils()
+        
         transformer_path = folder_paths.get_full_path("unet", transformer)
         vae_path = folder_paths.get_full_path("vae", vae)
         clip_path = folder_paths.get_full_path("clip", clip_l)
@@ -120,16 +177,17 @@ class Flux2TrainModelSelect:
 
         # Определяем тип модели
         model_type = "auto"
-        try:
-            is_diffusers, is_schnell, (num_double, num_single), _ = flux_utils.analyze_checkpoint_state(transformer_path)
-            if num_double > 24 or num_single > 50:
-                model_type = "flux2_dev"
-                logger.info(f"Detected Flux.2 Dev model (blocks: {num_double}/{num_single})")
-            else:
-                model_type = "flux2_klein_9b"
-                logger.info(f"Detected Flux.2 Klein 9B model (blocks: {num_double}/{num_single})")
-        except Exception as e:
-            logger.warning(f"Could not auto-detect model type: {e}")
+        if flux_utils:
+            try:
+                is_diffusers, is_schnell, (num_double, num_single), _ = flux_utils.analyze_checkpoint_state(transformer_path)
+                if num_double > 24 or num_single > 50:
+                    model_type = "flux2_dev"
+                    logger.info(f"Detected Flux.2 Dev model (blocks: {num_double}/{num_single})")
+                else:
+                    model_type = "flux2_klein_9b"
+                    logger.info(f"Detected Flux.2 Klein 9B model (blocks: {num_double}/{num_single})")
+            except Exception as e:
+                logger.warning(f"Could not auto-detect model type: {e}")
 
         flux2_models = {
             "transformer": transformer_path,
@@ -203,6 +261,9 @@ class Flux2TrainModelPaths:
         raise FileNotFoundError(f"File not found: {path_value}")
 
     def loadmodel_paths(self, transformer_path, vae_path, clip_l_path, t5_path, lora_path=""):
+        # LAZY IMPORT
+        flux_utils = _lazy_import_flux_utils()
+        
         transformer_path = self._resolve(transformer_path, "unet")
         vae_path = self._resolve(vae_path, "vae")
         clip_path = self._resolve(clip_l_path, "clip")
@@ -210,16 +271,17 @@ class Flux2TrainModelPaths:
 
         # Определяем тип модели
         model_type = "auto"
-        try:
-            is_diffusers, is_schnell, (num_double, num_single), _ = flux_utils.analyze_checkpoint_state(transformer_path)
-            if num_double > 24 or num_single > 50:
-                model_type = "flux2_dev"
-                logger.info(f"Detected Flux.2 Dev model (blocks: {num_double}/{num_single})")
-            else:
-                model_type = "flux2_klein_9b"
-                logger.info(f"Detected Flux.2 Klein 9B model (blocks: {num_double}/{num_single})")
-        except Exception as e:
-            logger.warning(f"Could not auto-detect model type: {e}")
+        if flux_utils:
+            try:
+                is_diffusers, is_schnell, (num_double, num_single), _ = flux_utils.analyze_checkpoint_state(transformer_path)
+                if num_double > 24 or num_single > 50:
+                    model_type = "flux2_dev"
+                    logger.info(f"Detected Flux.2 Dev model (blocks: {num_double}/{num_single})")
+                else:
+                    model_type = "flux2_klein_9b"
+                    logger.info(f"Detected Flux.2 Klein 9B model (blocks: {num_double}/{num_single})")
+            except Exception as e:
+                logger.warning(f"Could not auto-detect model type: {e}")
 
         flux2_models = {
             "transformer": transformer_path,
@@ -315,6 +377,12 @@ class Flux2LowVRAMConfig:
         use_fp8_base=True,
         empty_cache_frequently=True
     ):
+        # LAZY IMPORT - загружаем модули обучения только при использовании
+        modules = _lazy_import_training()
+        LowVRAMConfig = modules["LowVRAMConfig"]
+        OffloadStrategy = modules["OffloadStrategy"]
+        get_optimal_config_for_vram = modules["get_optimal_config_for_vram"]
+        
         # Определяем стратегию
         if strategy == "auto":
             config = get_optimal_config_for_vram(available_vram_gb, available_ram_gb)
@@ -442,6 +510,16 @@ class Flux2InitTraining:
         prompt=None, 
         extra_pnginfo=None,
     ):
+        # LAZY IMPORT - ключевое изменение для стабильной загрузки!
+        # Ошибка появится ТОЛЬКО здесь при Queue Prompt, а не при загрузке нод
+        modules = _lazy_import_training()
+        toml = modules["toml"]
+        torch = modules["torch"]
+        FluxNetworkTrainer = modules["FluxNetworkTrainer"]
+        train_network_setup_parser = modules["train_network_setup_parser"]
+        flux_train_utils = modules["flux_train_utils"]
+        get_optimal_config_for_vram = modules["get_optimal_config_for_vram"]
+        
         mm.soft_empty_cache()
         
         # Создаём конфиг по умолчанию если не передан
@@ -636,6 +714,10 @@ class Flux2TrainLoop:
     CATEGORY = "FluxTrainer/Flux2"
 
     def train(self, network_trainer, steps):
+        # LAZY IMPORT
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        
         with torch.inference_mode(False):
             training_loop = network_trainer["training_loop"]
             trainer = network_trainer["network_trainer"]
@@ -694,6 +776,10 @@ class Flux2TrainAndValidateLoop:
     CATEGORY = "FluxTrainer/Flux2"
 
     def train(self, network_trainer, validate_at_steps, save_at_steps, validation_settings=None):
+        # LAZY IMPORT
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        
         with torch.inference_mode(False):
             training_loop = network_trainer["training_loop"]
             trainer = network_trainer["network_trainer"]
@@ -744,6 +830,10 @@ class Flux2TrainAndValidateLoop:
         logger.info(f"Validation at step: {trainer.global_step}")
     
     def _save(self, trainer):
+        # LAZY IMPORT
+        modules = _lazy_import_training()
+        train_util = modules["train_util"]
+        
         ckpt_name = train_util.get_step_ckpt_name(
             trainer.args, 
             "." + trainer.args.save_model_as, 
@@ -786,6 +876,11 @@ class Flux2TrainSave:
     CATEGORY = "FluxTrainer/Flux2"
 
     def save(self, network_trainer, save_state, copy_to_comfy_lora_folder):
+        # LAZY IMPORT
+        modules = _lazy_import_training()
+        torch = modules["torch"]
+        train_util = modules["train_util"]
+        
         with torch.inference_mode(False):
             trainer = network_trainer["network_trainer"]
             global_step = trainer.global_step
@@ -850,6 +945,11 @@ class Flux2TrainEnd:
     CATEGORY = "FluxTrainer/Flux2"
 
     def end_training(self, network_trainer):
+        # LAZY IMPORT
+        modules = _lazy_import_training()
+        train_util = modules["train_util"]
+        clean_memory_on_device = modules["clean_memory_on_device"]
+        
         trainer = network_trainer["network_trainer"]
         
         # Финальное сохранение
@@ -965,6 +1065,9 @@ class Flux2MemoryEstimator:
     OUTPUT_NODE = True
 
     def estimate(self, model_type, network_dim, batch_size, resolution, low_vram_config=None):
+        # LAZY IMPORT - загрузка только при Queue Prompt
+        modules = _lazy_import_training()
+        
         # Параметры моделей
         model_params = {
             "flux2_klein_9b": 9.0,
@@ -973,8 +1076,29 @@ class Flux2MemoryEstimator:
         
         params_b = model_params.get(model_type, 9.0)
         
+        # Если low_vram_config не предоставлен, создаём стандартный
         if low_vram_config is None:
-            low_vram_config = LowVRAMConfig()
+            from dataclasses import dataclass
+            from enum import Enum
+            
+            class VRAMStrategy(Enum):
+                AGGRESSIVE = "aggressive_offload"
+            
+            @dataclass
+            class DefaultConfig:
+                strategy: VRAMStrategy = VRAMStrategy.AGGRESSIVE
+                blocks_to_swap: int = 18
+                
+                def estimate_memory_usage(self, params_b: float):
+                    return {
+                        'base_model_vram': params_b * 0.3,
+                        'lora_weights_vram': 0.1,
+                        'activations_peak': 2.0,
+                        'optimizer_vram': 0.5,
+                        'optimizer_ram': 4.0
+                    }
+            
+            low_vram_config = DefaultConfig()
         
         mem = low_vram_config.estimate_memory_usage(params_b)
         total_vram = sum(v for k, v in mem.items() if 'vram' in k)
@@ -1022,43 +1146,35 @@ class Flux2MemoryEstimator:
 # =============================================================================
 # NODE MAPPINGS
 # =============================================================================
-if IMPORTS_OK:
-    NODE_CLASS_MAPPINGS = {
-        "Flux2TrainModelSelect": Flux2TrainModelSelect,
-        "Flux2TrainModelPaths": Flux2TrainModelPaths,
-        "Flux2LowVRAMConfig": Flux2LowVRAMConfig,
-        "Flux2InitTraining": Flux2InitTraining,
-        "Flux2TrainLoop": Flux2TrainLoop,
-        "Flux2TrainAndValidateLoop": Flux2TrainAndValidateLoop,
-        "Flux2TrainSave": Flux2TrainSave,
-        "Flux2TrainEnd": Flux2TrainEnd,
-        "Flux2TrainAdvancedSettings": Flux2TrainAdvancedSettings,
-        "Flux2MemoryEstimator": Flux2MemoryEstimator,
-    }
-else:
-    class DependencyErrorNode:
-        @classmethod
-        def INPUT_TYPES(s): return {"required": {}}
-        RETURN_TYPES = ()
-        FUNCTION = "error"
-        CATEGORY = "FluxTrainer/Flux2"
-        def error(self): raise ImportError(f"Missing dependencies: {IMPORT_ERROR_MSG}")
-    
-    NODE_CLASS_MAPPINGS = {k: DependencyErrorNode for k in [
-        "Flux2TrainModelSelect", "Flux2TrainModelPaths", "Flux2LowVRAMConfig", "Flux2InitTraining", 
-        "Flux2TrainLoop", "Flux2TrainAndValidateLoop", "Flux2TrainSave", 
-        "Flux2TrainEnd", "Flux2TrainAdvancedSettings", "Flux2MemoryEstimator"
-    ]}
+# КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Ноды ВСЕГДА регистрируются!
+# Ошибки зависимостей появятся только при Queue Prompt, а не при загрузке.
+# Это позволяет ComfyUI корректно отображать все ноды в UI.
+
+NODE_CLASS_MAPPINGS = {
+    "Flux2TrainModelSelect": Flux2TrainModelSelect,
+    "Flux2TrainModelPaths": Flux2TrainModelPaths,
+    "Flux2LowVRAMConfig": Flux2LowVRAMConfig,
+    "Flux2InitTraining": Flux2InitTraining,
+    "Flux2TrainLoop": Flux2TrainLoop,
+    "Flux2TrainAndValidateLoop": Flux2TrainAndValidateLoop,
+    "Flux2TrainSave": Flux2TrainSave,
+    "Flux2TrainEnd": Flux2TrainEnd,
+    "Flux2TrainAdvancedSettings": Flux2TrainAdvancedSettings,
+    "Flux2MemoryEstimator": Flux2MemoryEstimator,
+}
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "Flux2TrainModelSelect": "Flux.2 Model Select" if IMPORTS_OK else "⚠️ Flux.2 Model Select (Error)",
-    "Flux2TrainModelPaths": "Flux.2 Model Paths" if IMPORTS_OK else "⚠️ Flux.2 Model Paths (Error)",
-    "Flux2LowVRAMConfig": "Flux.2 Low VRAM Config" if IMPORTS_OK else "⚠️ Flux.2 Low VRAM Config (Error)",
-    "Flux2InitTraining": "Flux.2 Init Training" if IMPORTS_OK else "⚠️ Flux.2 Init Training (Error)",
-    "Flux2TrainLoop": "Flux.2 Train Loop" if IMPORTS_OK else "⚠️ Flux.2 Train Loop (Error)",
-    "Flux2TrainAndValidateLoop": "Flux.2 Train & Validate" if IMPORTS_OK else "⚠️ Flux.2 Train & Validate (Error)",
-    "Flux2TrainSave": "Flux.2 Save LoRA" if IMPORTS_OK else "⚠️ Flux.2 Save LoRA (Error)",
-    "Flux2TrainEnd": "Flux.2 End Training" if IMPORTS_OK else "⚠️ Flux.2 End Training (Error)",
-    "Flux2TrainAdvancedSettings": "Flux.2 Advanced Settings" if IMPORTS_OK else "⚠️ Flux.2 Advanced Settings (Error)",
-    "Flux2MemoryEstimator": "Flux.2 Memory Estimator" if IMPORTS_OK else "⚠️ Flux.2 Memory Estimator (Error)",
+    "Flux2TrainModelSelect": "🔷 Flux.2 Model Select",
+    "Flux2TrainModelPaths": "📁 Flux.2 Model Paths",
+    "Flux2LowVRAMConfig": "💾 Flux.2 Low VRAM Config",
+    "Flux2InitTraining": "🚀 Flux.2 Init Training",
+    "Flux2TrainLoop": "🔄 Flux.2 Train Loop",
+    "Flux2TrainAndValidateLoop": "🔄✅ Flux.2 Train & Validate",
+    "Flux2TrainSave": "💾 Flux.2 Save LoRA",
+    "Flux2TrainEnd": "🏁 Flux.2 End Training",
+    "Flux2TrainAdvancedSettings": "⚙️ Flux.2 Advanced Settings",
+    "Flux2MemoryEstimator": "📊 Flux.2 Memory Estimator",
 }
+
+# Log registration
+logger.info(f"[ComfyUI-FluxTrainer-Pro] Registered {len(NODE_CLASS_MAPPINGS)} Flux.2 nodes (lazy imports enabled)")
