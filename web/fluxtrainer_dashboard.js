@@ -489,35 +489,44 @@ class FTProAPI {
         this._listeners = {};
         this._lastStep = -1;
         this._wsSetup = false;
+        this._abortController = null;
     }
 
-    async fetch(endpoint, options = {}) {
+    async _request(endpoint, options = {}) {
         try {
-            const resp = await fetch(`/api/fluxtrainer/${endpoint}`, options);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            const resp = await window.fetch(`/api/fluxtrainer/${endpoint}`, {
+                ...options,
+                signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             return await resp.json();
         } catch (e) {
-            console.debug(`[FTPro API] ${endpoint} failed:`, e.message);
+            if (e.name !== 'AbortError') {
+                console.debug(`[FTPro API] ${endpoint} failed:`, e.message);
+            }
             return null;
         }
     }
 
-    async getStatus() { return this.fetch('status'); }
-    async getLoss(since = 0) { return this.fetch(`loss?since=${since}`); }
-    async getLR(since = 0) { return this.fetch(`lr?since=${since}`); }
-    async getVRAM(last = 100) { return this.fetch(`vram?last=${last}`); }
-    async getSamples(last = 20) { return this.fetch(`samples?last=${last}`); }
-    async getConfig() { return this.fetch('config'); }
-    async getPresets() { return this.fetch('presets/list'); }
+    async getStatus() { return this._request('status'); }
+    async getLoss(since = 0) { return this._request(`loss?since=${since}`); }
+    async getLR(since = 0) { return this._request(`lr?since=${since}`); }
+    async getVRAM(last = 100) { return this._request(`vram?last=${last}`); }
+    async getSamples(last = 20) { return this._request(`samples?last=${last}`); }
+    async getConfig() { return this._request('config'); }
+    async getPresets() { return this._request('presets/list'); }
     async savePreset(data) {
-        return this.fetch('presets/save', {
+        return this._request('presets/save', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
         });
     }
     async loadPreset(filename) {
-        return this.fetch('presets/load', {
+        return this._request('presets/load', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filename }),
@@ -537,9 +546,10 @@ class FTProAPI {
     }
 
     // Polling + WebSocket
-    startPolling(intervalMs = 2000) {
+    startPolling(intervalMs = 2500) {
         this.stopPolling();
-        this._poll();
+        // Первый poll с небольшой задержкой, чтобы DOM успел отрисоваться
+        setTimeout(() => this._poll(), 100);
         this._pollInterval = setInterval(() => this._poll(), intervalMs);
         this._setupWebSocket();
     }
@@ -548,11 +558,13 @@ class FTProAPI {
         if (this._wsSetup) return;
         this._wsSetup = true;
         try {
-            api.addEventListener("fluxtrainer.progress", (d) => this._emit('progress', d.detail));
-            api.addEventListener("fluxtrainer.status", (d) => this._emit('status_change', d.detail));
-            api.addEventListener("fluxtrainer.sample", (d) => this._emit('sample', d.detail));
-            api.addEventListener("fluxtrainer.started", (d) => this._emit('started', d.detail));
-            api.addEventListener("fluxtrainer.finished", (d) => this._emit('finished', d.detail));
+            if (typeof api !== 'undefined' && api && typeof api.addEventListener === 'function') {
+                api.addEventListener("fluxtrainer.progress", (d) => this._emit('progress', d.detail));
+                api.addEventListener("fluxtrainer.status", (d) => this._emit('status_change', d.detail));
+                api.addEventListener("fluxtrainer.sample", (d) => this._emit('sample', d.detail));
+                api.addEventListener("fluxtrainer.started", (d) => this._emit('started', d.detail));
+                api.addEventListener("fluxtrainer.finished", (d) => this._emit('finished', d.detail));
+            }
         } catch (e) {
             console.debug('[FTPro] WebSocket events not available, using polling only');
         }
@@ -566,13 +578,21 @@ class FTProAPI {
     }
 
     async _poll() {
-        const status = await this.getStatus();
-        if (status) {
-            this._emit('status_update', status);
-            if (status.step !== this._lastStep) {
-                this._lastStep = status.step;
-                this._emit('step_update', status);
+        if (this._polling) return; // Защита от concurrent polls
+        this._polling = true;
+        try {
+            const status = await this.getStatus();
+            if (status) {
+                this._emit('status_update', status);
+                if (status.step !== this._lastStep) {
+                    this._lastStep = status.step;
+                    this._emit('step_update', status);
+                }
             }
+        } catch (e) {
+            console.debug('[FTPro] Poll error:', e.message);
+        } finally {
+            this._polling = false;
         }
     }
 }
@@ -609,27 +629,34 @@ class FTProChart {
     }
 
     _resize() {
-        const rect = this.canvas.parentElement?.getBoundingClientRect();
-        if (!rect) return;
-        const dpr = window.devicePixelRatio || 1;
-        this.canvas.width = rect.width * dpr;
-        this.canvas.height = (this.options.height || rect.height || 280) * dpr;
-        this.canvas.style.width = rect.width + 'px';
-        this.canvas.style.height = (this.options.height || rect.height || 280) + 'px';
-        this.ctx.scale(dpr, dpr);
-        this.w = rect.width;
-        this.h = this.options.height || rect.height || 280;
+        try {
+            const rect = this.canvas.parentElement?.getBoundingClientRect();
+            if (!rect || rect.width < 10 || rect.height < 10) return false;
+            const dpr = window.devicePixelRatio || 1;
+            this.canvas.width = rect.width * dpr;
+            this.canvas.height = (this.options.height || rect.height || 280) * dpr;
+            this.canvas.style.width = rect.width + 'px';
+            this.canvas.style.height = (this.options.height || rect.height || 280) + 'px';
+            this.ctx.scale(dpr, dpr);
+            this.w = rect.width;
+            this.h = this.options.height || rect.height || 280;
+            return true;
+        } catch (e) {
+            console.debug('[FTPro Chart] Resize error:', e.message);
+            return false;
+        }
     }
 
     setData(data, secondaryData = null) {
-        this._data = data || [];
-        this._secondaryData = secondaryData || [];
-        this.render();
+        this._data = Array.isArray(data) ? data : [];
+        this._secondaryData = Array.isArray(secondaryData) ? secondaryData : [];
+        try { this.render(); } catch (e) { console.debug('[FTPro Chart] Render error:', e.message); }
     }
 
     render() {
-        this._resize();
+        if (!this._resize()) return;
         const { ctx, w, h, options: o } = this;
+        if (!ctx || !w || !h) return;
         const p = o.padding;
 
         ctx.clearRect(0, 0, w, h);
@@ -646,9 +673,14 @@ class FTProChart {
         const plotH = h - p.top - p.bottom;
         
         // Calculate ranges
-        const values = this._data.map(d => d.value || d.y || 0);
+        const values = this._data.map(d => {
+            const v = d.value ?? d.y ?? 0;
+            return Number.isFinite(v) ? v : 0;
+        });
+        if (values.length === 0) return;
         let minVal = Math.min(...values);
         let maxVal = Math.max(...values);
+        if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) return;
         if (minVal === maxVal) { minVal -= 0.001; maxVal += 0.001; }
         const valRange = maxVal - minVal;
         minVal -= valRange * 0.05;
@@ -716,14 +748,21 @@ class FTProChart {
     }
 
     _drawLine(data, color, lineWidth) {
+        if (!data || data.length < 2) return;
         const { ctx } = this;
         const p = this.options.padding;
         const plotW = this.w - p.left - p.right;
         const plotH = this.h - p.top - p.bottom;
+        if (plotW <= 0 || plotH <= 0) return;
 
-        const values = [...this._data, ...this._secondaryData].map(d => d.value || d.y || 0);
-        let minVal = Math.min(...values);
-        let maxVal = Math.max(...values);
+        const allValues = [...this._data, ...this._secondaryData].map(d => {
+            const v = d.value ?? d.y ?? 0;
+            return Number.isFinite(v) ? v : 0;
+        });
+        if (allValues.length === 0) return;
+        let minVal = Math.min(...allValues);
+        let maxVal = Math.max(...allValues);
+        if (!Number.isFinite(minVal) || !Number.isFinite(maxVal)) return;
         if (minVal === maxVal) { minVal -= 0.001; maxVal += 0.001; }
         const valRange = maxVal - minVal;
         minVal -= valRange * 0.05;
@@ -764,6 +803,9 @@ class FTProDashboard {
         this.charts = {};
         this._state = {};
         this._elements = {};
+        this._chartsInitialized = false;
+        this._chartUpdatePending = false;
+        this._chartUpdateTimer = null;
         
         // Tabs definition
         this.tabs = [
@@ -1018,32 +1060,40 @@ class FTProDashboard {
         </div>`;
     }
 
-    // === Charts Init ===
+    // === Charts Init (only once) ===
     _initCharts() {
-        const lossCanvas = this._elements.dashboard.querySelector('#ftpro-chart-loss');
-        const lrCanvas = this._elements.dashboard.querySelector('#ftpro-chart-lr');
-        const vramCanvas = this._elements.dashboard.querySelector('#ftpro-chart-vram');
+        if (this._chartsInitialized) return;
+        
+        try {
+            const lossCanvas = this._elements.dashboard.querySelector('#ftpro-chart-loss');
+            const lrCanvas = this._elements.dashboard.querySelector('#ftpro-chart-lr');
+            const vramCanvas = this._elements.dashboard.querySelector('#ftpro-chart-vram');
 
-        if (lossCanvas) {
-            this.charts.loss = new FTProChart(lossCanvas, {
-                lineColor: '#63b3ed',
-                secondaryColor: '#b794f4',
-                fillColor: 'rgba(99, 179, 237, 0.06)',
-            });
-        }
-        if (lrCanvas) {
-            this.charts.lr = new FTProChart(lrCanvas, {
-                lineColor: '#48bb78',
-                fillColor: 'rgba(72, 187, 120, 0.06)',
-                height: 180,
-            });
-        }
-        if (vramCanvas) {
-            this.charts.vram = new FTProChart(vramCanvas, {
-                lineColor: '#ed8936',
-                fillColor: 'rgba(237, 137, 54, 0.06)',
-                height: 180,
-            });
+            if (lossCanvas) {
+                this.charts.loss = new FTProChart(lossCanvas, {
+                    lineColor: '#63b3ed',
+                    secondaryColor: '#b794f4',
+                    fillColor: 'rgba(99, 179, 237, 0.06)',
+                });
+            }
+            if (lrCanvas) {
+                this.charts.lr = new FTProChart(lrCanvas, {
+                    lineColor: '#48bb78',
+                    fillColor: 'rgba(72, 187, 120, 0.06)',
+                    height: 180,
+                });
+            }
+            if (vramCanvas) {
+                this.charts.vram = new FTProChart(vramCanvas, {
+                    lineColor: '#ed8936',
+                    fillColor: 'rgba(237, 137, 54, 0.06)',
+                    height: 180,
+                });
+            }
+            
+            this._chartsInitialized = true;
+        } catch (e) {
+            console.error('[FTPro] Chart init error:', e);
         }
     }
 
@@ -1081,23 +1131,25 @@ class FTProDashboard {
     _updateUI(data) {
         if (!data) return;
 
-        // Toggle button state
-        const isTraining = data.status === 'training';
-        this._elements.toggleBtn.classList.toggle('training', isTraining);
-        const badge = this._elements.toggleBtn.querySelector('.ftpro-mini-badge');
-        if (badge) {
-            badge.textContent = `${Math.round(data.progress_percent || 0)}%`;
-        }
+        try {
+            // Toggle button state
+            const isTraining = data.status === 'training';
+            this._elements.toggleBtn.classList.toggle('training', isTraining);
+            const badge = this._elements.toggleBtn.querySelector('.ftpro-mini-badge');
+            if (badge) {
+                badge.textContent = `${Math.round(data.progress_percent || 0)}%`;
+            }
 
-        // Status pill
-        if (this._elements.statusPill) {
-            const pill = this._elements.statusPill;
-            pill.className = `ftpro-status-pill ${data.status}`;
-            pill.querySelector('span').textContent = this._translateStatus(data.status);
-        }
+            // Status pill
+            if (this._elements.statusPill) {
+                const pill = this._elements.statusPill;
+                pill.className = `ftpro-status-pill ${data.status}`;
+                const span = pill.querySelector('span');
+                if (span) span.textContent = this._translateStatus(data.status);
+            }
 
-        // Progress bar
-        if (this._elements.progressBar) {
+            // Progress bar
+            if (this._elements.progressBar) {
             this._elements.progressBar.style.width = `${data.progress_percent || 0}%`;
         }
 
@@ -1111,69 +1163,97 @@ class FTProDashboard {
         if (footerTime) {
             footerTime.textContent = `Обновлено: ${new Date().toLocaleTimeString()}`;
         }
+        } catch (e) {
+            console.debug('[FTPro] UI update error:', e.message);
+        }
     }
 
     _updateMonitorTab(data) {
         const dash = this._elements.dashboard;
         if (!dash) return;
 
-        // Step
-        const stepEl = dash.querySelector('#ftpro-step-val');
-        if (stepEl) stepEl.textContent = `${data.step || 0} / ${data.max_steps || 0}`;
+        try {
+            // Step
+            const stepEl = dash.querySelector('#ftpro-step-val');
+            if (stepEl) stepEl.textContent = `${data.step || 0} / ${data.max_steps || 0}`;
 
-        const epochEl = dash.querySelector('#ftpro-epoch-val');
-        if (epochEl) epochEl.textContent = `Эпоха ${data.epoch || 0} / ${data.max_epochs || 0}`;
+            const epochEl = dash.querySelector('#ftpro-epoch-val');
+            if (epochEl) epochEl.textContent = `Эпоха ${data.epoch || 0} / ${data.max_epochs || 0}`;
 
-        // Loss
-        const lossEl = dash.querySelector('#ftpro-loss-val');
-        if (lossEl) {
-            const loss = data.current_loss;
-            lossEl.textContent = loss != null ? loss.toFixed(6) : '—';
+            // Loss
+            const lossEl = dash.querySelector('#ftpro-loss-val');
+            if (lossEl) {
+                const loss = data.current_loss;
+                lossEl.textContent = loss != null ? loss.toFixed(6) : '—';
+            }
+            const lossSub = dash.querySelector('#ftpro-loss-sub');
+            if (lossSub) {
+                lossSub.textContent = `avg: ${data.avg_loss?.toFixed(6) || '—'} | min: ${data.min_loss?.toFixed(6) || '—'} (шаг ${data.best_loss_step || '—'})`;
+            }
+
+            // Speed
+            const speedEl = dash.querySelector('#ftpro-speed-val');
+            if (speedEl) speedEl.textContent = data.steps_per_second ? `${data.steps_per_second.toFixed(2)}` : '—';
+
+            // ETA
+            const etaEl = dash.querySelector('#ftpro-eta-val');
+            if (etaEl) etaEl.textContent = data.eta_seconds ? this._formatTime(data.eta_seconds) : '—';
+            const timeSub = dash.querySelector('#ftpro-time-sub');
+            if (timeSub) timeSub.textContent = `прошло: ${this._formatTime(data.elapsed_seconds || 0)}`;
+        } catch (e) {
+            console.debug('[FTPro] Monitor tab update error:', e.message);
         }
-        const lossSub = dash.querySelector('#ftpro-loss-sub');
-        if (lossSub) {
-            lossSub.textContent = `avg: ${data.avg_loss?.toFixed(6) || '—'} | min: ${data.min_loss?.toFixed(6) || '—'} (шаг ${data.best_loss_step || '—'})`;
-        }
 
-        // Speed
-        const speedEl = dash.querySelector('#ftpro-speed-val');
-        if (speedEl) speedEl.textContent = data.steps_per_second ? `${data.steps_per_second.toFixed(2)}` : '—';
+        // Debounced chart update — не чаще раза в 3 секунды
+        this._scheduleChartUpdate();
+    }
 
-        // ETA
-        const etaEl = dash.querySelector('#ftpro-eta-val');
-        if (etaEl) etaEl.textContent = data.eta_seconds ? this._formatTime(data.eta_seconds) : '—';
-        const timeSub = dash.querySelector('#ftpro-time-sub');
-        if (timeSub) timeSub.textContent = `прошло: ${this._formatTime(data.elapsed_seconds || 0)}`;
-
-        // Update charts (async)
-        this._updateCharts();
+    _scheduleChartUpdate() {
+        if (this._chartUpdatePending) return;
+        this._chartUpdatePending = true;
+        
+        if (this._chartUpdateTimer) clearTimeout(this._chartUpdateTimer);
+        this._chartUpdateTimer = setTimeout(async () => {
+            this._chartUpdatePending = false;
+            try {
+                await this._updateCharts();
+            } catch (e) {
+                console.debug('[FTPro] Chart update error:', e.message);
+            }
+        }, 500);
     }
 
     async _updateCharts() {
-        // Loss chart
-        if (this.charts.loss) {
-            const lossData = await this.api.getLoss();
-            if (lossData?.data?.length > 1) {
-                const movingAvg = this._calcMovingAvg(lossData.data, 20);
-                this.charts.loss.setData(lossData.data, movingAvg);
+        if (!this.isOpen) return;
+        
+        try {
+            // Loss chart
+            if (this.charts.loss) {
+                const lossData = await this.api.getLoss();
+                if (lossData?.data?.length > 1) {
+                    const movingAvg = this._calcMovingAvg(lossData.data, 20);
+                    this.charts.loss.setData(lossData.data, movingAvg);
+                }
             }
-        }
 
-        // LR chart
-        if (this.charts.lr) {
-            const lrData = await this.api.getLR();
-            if (lrData?.data?.length > 1) {
-                this.charts.lr.setData(lrData.data);
+            // LR chart
+            if (this.charts.lr) {
+                const lrData = await this.api.getLR();
+                if (lrData?.data?.length > 1) {
+                    this.charts.lr.setData(lrData.data);
+                }
             }
-        }
 
-        // VRAM chart
-        if (this.charts.vram) {
-            const vramData = await this.api.getVRAM();
-            if (vramData?.data?.length > 1) {
-                const mapped = vramData.data.map(d => ({ step: d.step, value: d.used }));
-                this.charts.vram.setData(mapped);
+            // VRAM chart
+            if (this.charts.vram) {
+                const vramData = await this.api.getVRAM();
+                if (vramData?.data?.length > 1) {
+                    const mapped = vramData.data.map(d => ({ step: d.step, value: d.used }));
+                    this.charts.vram.setData(mapped);
+                }
             }
+        } catch (e) {
+            console.debug('[FTPro] Chart data fetch error:', e.message);
         }
     }
 
@@ -1241,8 +1321,12 @@ class FTProDashboard {
         // Refresh charts when switching to monitor
         if (tabId === 'monitor') {
             requestAnimationFrame(() => {
-                this._initCharts();
-                this._updateCharts();
+                try {
+                    this._initCharts(); // Только создаёт если ещё не созданы
+                    this._scheduleChartUpdate();
+                } catch (e) {
+                    console.debug('[FTPro] Tab switch chart error:', e.message);
+                }
             });
         }
         // Load config when switching to config tab
@@ -1254,11 +1338,12 @@ class FTProDashboard {
     }
 
     async _loadConfigPanel() {
-        const container = this._elements.dashboard.querySelector('#ftpro-config-display');
-        if (!container) return;
-        
-        const configData = await this.api.getConfig();
-        if (!configData?.config || Object.keys(configData.config).length === 0) return;
+        try {
+            const container = this._elements.dashboard.querySelector('#ftpro-config-display');
+            if (!container) return;
+            
+            const configData = await this.api.getConfig();
+            if (!configData?.config || Object.keys(configData.config).length === 0) return;
 
         const config = configData.config;
         let html = `<div class="ftpro-section-title">⚙️ Текущие параметры: ${configData.model_name || 'Unknown'}</div>`;
@@ -1274,11 +1359,15 @@ class FTProDashboard {
         }
         html += '</div>';
         container.innerHTML = html;
+        } catch (e) {
+            console.debug('[FTPro] Config panel load error:', e.message);
+        }
     }
 
     async _loadSamplesPanel() {
-        const grid = this._elements.dashboard.querySelector('#ftpro-samples-grid');
-        if (!grid) return;
+        try {
+            const grid = this._elements.dashboard.querySelector('#ftpro-samples-grid');
+            if (!grid) return;
 
         const samplesData = await this.api.getSamples();
         if (!samplesData?.data?.length) return;
@@ -1294,11 +1383,15 @@ class FTProDashboard {
                 </div>
             </div>
         `).join('');
+        } catch (e) {
+            console.debug('[FTPro] Samples panel load error:', e.message);
+        }
     }
 
     async _loadPresetsPanel() {
-        const container = this._elements.dashboard.querySelector('#ftpro-presets-list');
-        if (!container) return;
+        try {
+            const container = this._elements.dashboard.querySelector('#ftpro-presets-list');
+            if (!container) return;
 
         const presetsData = await this.api.getPresets();
         if (!presetsData?.presets?.length) return;
@@ -1314,6 +1407,9 @@ class FTProDashboard {
             `;
         });
         container.innerHTML = html;
+        } catch (e) {
+            console.debug('[FTPro] Presets panel load error:', e.message);
+        }
     }
 
     // === Open/Close ===
@@ -1322,27 +1418,40 @@ class FTProDashboard {
     }
 
     open() {
+        if (this.isOpen) return;
         this.isOpen = true;
         this._elements.overlay.classList.add('open');
         this._elements.dashboard.classList.add('open');
         
-        // Start polling when dashboard is opened
+        // Start polling when dashboard is opened (с задержкой)
         this.api.startPolling(2500);
         
-        // Reinit charts
+        // Init charts once, then update
         requestAnimationFrame(() => {
-            this._initCharts();
-            if (this._state) this._updateMonitorTab(this._state);
+            try {
+                this._initCharts();
+                if (this._state && Object.keys(this._state).length > 0) {
+                    this._updateMonitorTab(this._state);
+                }
+            } catch (e) {
+                console.error('[FTPro] Open error:', e);
+            }
         });
     }
 
     close() {
+        if (!this.isOpen) return;
         this.isOpen = false;
         this._elements.overlay.classList.remove('open');
         this._elements.dashboard.classList.remove('open');
         
-        // Stop polling when dashboard is closed (save resources)
+        // Stop all timers
         this.api.stopPolling();
+        if (this._chartUpdateTimer) {
+            clearTimeout(this._chartUpdateTimer);
+            this._chartUpdateTimer = null;
+        }
+        this._chartUpdatePending = false;
     }
 }
 

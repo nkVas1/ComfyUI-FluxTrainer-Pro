@@ -245,6 +245,123 @@ def _patch_triton_for_windows():
 # Применяем патч СРАЗУ при загрузке модуля (до любых других импортов)
 _triton_patched = _patch_triton_for_windows()
 
+
+# =============================================================================
+# WINDOWS XFORMERS DLL PATCH - v2.5.0
+# =============================================================================
+# Проблема: xformers собран под конкретную версию PyTorch/CUDA. Если версии
+# не совпадают, C-расширения (_C_flashattention, _C) не загружаются:
+#   ImportError: DLL load failed while importing _C_flashattention
+#
+# Это ЛОМАЕТ весь import chain diffusers:
+#   diffusers.models.attention_processor → import xformers.ops → CRASH
+#   library/train_util.py → from diffusers import ... → CRASH
+#
+# Решение: Перехватываем сломанные C-расширения xformers ДО того, как
+# diffusers попытается их импортировать. Подменяем на mock-модули,
+# чтобы xformers.ops загрузился (с fallback на pytorch attention),
+# а diffusers не крашился.
+# =============================================================================
+
+def _patch_xformers_dll():
+    """
+    Патч сломанных C-расширений xformers на Windows.
+    
+    Если xformers установлен, но его DLL несовместимы с текущей версией
+    PyTorch/CUDA, подменяем C-расширения на mock-заглушки.
+    Это позволяет diffusers загрузиться без ошибок.
+    """
+    # Только Windows
+    if sys.platform != 'win32':
+        return False
+    
+    import importlib.util
+    
+    # Проверяем, установлен ли xformers вообще
+    xformers_spec = importlib.util.find_spec('xformers')
+    if xformers_spec is None:
+        return False  # xformers не установлен — патч не нужен
+    
+    from types import ModuleType
+    from unittest.mock import MagicMock
+    
+    # Список C-расширений xformers, которые могут упасть при несовпадении версий
+    _c_extensions = [
+        'xformers._C_flashattention',
+        'xformers._C',
+    ]
+    
+    needs_patch = False
+    
+    for ext_name in _c_extensions:
+        # Если уже в sys.modules (кто-то успел загрузить) — пропускаем
+        if ext_name in sys.modules:
+            continue
+        
+        # Пробуем импортировать C-расширение
+        try:
+            __import__(ext_name)
+        except (ImportError, OSError) as e:
+            err_str = str(e).lower()
+            # DLL load failed / cannot load / incompatible — типичные ошибки несовместимости
+            if any(kw in err_str for kw in ['dll', 'load', 'cannot', 'incompatible', 'symbol', 'undefined']):
+                # Создаём mock-модуль с __getattr__ для безопасного доступа к атрибутам
+                class _MockCExtension(ModuleType):
+                    """Mock для сломанного C-расширения xformers"""
+                    def __getattr__(self, name):
+                        return MagicMock()
+                
+                mock_ext = _MockCExtension(ext_name)
+                mock_ext.__name__ = ext_name
+                mock_ext.__package__ = 'xformers'
+                mock_ext.__file__ = f'<fluxtrainer-mock:{ext_name}>'
+                mock_ext.__loader__ = None
+                mock_ext.__spec__ = None
+                sys.modules[ext_name] = mock_ext
+                needs_patch = True
+                print(f"[ComfyUI-FluxTrainer-Pro] Patched broken xformers extension: {ext_name}")
+            else:
+                # Другая ошибка — не трогаем
+                pass
+        except Exception:
+            # Неизвестная ошибка — пропускаем
+            pass
+    
+    if needs_patch:
+        # Также нужно обеспечить, чтобы xformers.ops не крашился при последующих
+        # попытках использовать C-функции. Регистрируем fallback-версии
+        # промежуточных модулей, если они ещё не загружены.
+        _intermediate_modules = [
+            'xformers.ops',
+            'xformers.ops.fmha',
+            'xformers.ops.fmha.flash',
+            'xformers.ops.fmha.cutlass',
+            'xformers.ops.fmha.ck',
+            'xformers.ops.fmha.small_k',
+        ]
+        
+        for mod_name in _intermediate_modules:
+            if mod_name not in sys.modules:
+                # Пробуем импортировать — теперь C-расширения замокированы,
+                # промежуточные модули могут загрузиться нормально
+                try:
+                    __import__(mod_name)
+                except Exception:
+                    # Если всё ещё не получается — создаём mock
+                    mock = MagicMock()
+                    mock.__name__ = mod_name
+                    mock.__package__ = mod_name.rsplit('.', 1)[0]
+                    mock.__path__ = []
+                    sys.modules[mod_name] = mock
+        
+        print(f"[ComfyUI-FluxTrainer-Pro] xformers DLL patch applied (flash attention will use PyTorch fallback)")
+        return True
+    
+    return False
+
+
+_xformers_patched = _patch_xformers_dll()
+
 # Настройка логгера
 logger = logging.getLogger("ComfyUI-FluxTrainer-Pro")
 
@@ -295,6 +412,12 @@ if _broken_deps:
 print("[ComfyUI-FluxTrainer-Pro] Optional dependencies:")
 for dep, status in _optional_deps_status.items():
     print(f"    {dep}: {status}")
+
+# Показываем статус патчей
+if _triton_patched:
+    print("[ComfyUI-FluxTrainer-Pro] [PATCH] Triton JIT disabled (no Python.h)")
+if _xformers_patched:
+    print("[ComfyUI-FluxTrainer-Pro] [PATCH] xformers C extensions mocked (DLL incompatible)")
 
 # Initialize empty mappings as fallback
 NODE_CLASS_MAPPINGS = {}
