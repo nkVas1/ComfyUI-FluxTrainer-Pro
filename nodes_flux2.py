@@ -758,7 +758,7 @@ class Flux2InitTraining:
                 import torch
                 gpu_vram_gb = 8.0
                 if torch.cuda.is_available():
-                    gpu_vram_gb = torch.cuda.get_device_properties(0).total_mem / (1024 ** 3)
+                    gpu_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
                 
                 vram_estimate = estimate_vram_usage(
                     model_params_billions=model_params_b,
@@ -810,11 +810,51 @@ class Flux2InitTraining:
         
         # Парсим датасет
         dataset_config = dataset["datasets"]
-        dataset_toml = toml.dumps(json.loads(dataset_config))
+        dataset_json = json.loads(dataset_config)
         
         # Получаем размеры из датасета  
         width = dataset.get("width", 1024)
         height = dataset.get("height", 1024)
+        
+        # Настраиваем кэширование
+        cache_latents_to_disk = cache_latents == "disk"
+        cache_latents_enabled = cache_latents != "disabled"
+        cache_te_to_disk = cache_text_encoder_outputs == "disk"
+        cache_te_enabled = cache_text_encoder_outputs != "disabled"
+        
+        # ========================================================
+        # AUTO-FIX: При включённом кэшировании Text Encoder
+        # автоматически отключаем несовместимые параметры датасета
+        # (shuffle_caption, caption_dropout_rate, token_warmup_step,
+        #  caption_tag_dropout_rate)
+        # ========================================================
+        if cache_te_enabled and "general" in dataset_json:
+            general = dataset_json["general"]
+            incompatible_keys = {
+                "shuffle_caption": False,
+                "caption_dropout_rate": 0.0,
+                "token_warmup_step": 0,
+                "caption_tag_dropout_rate": 0.0,
+            }
+            fixed_keys = []
+            for key, safe_value in incompatible_keys.items():
+                if key in general:
+                    current = general[key]
+                    # Проверяем, установлено ли несовместимое значение
+                    if isinstance(current, bool) and current:
+                        general[key] = safe_value
+                        fixed_keys.append(f"{key}: {current} → {safe_value}")
+                    elif isinstance(current, (int, float)) and current > 0:
+                        general[key] = safe_value
+                        fixed_keys.append(f"{key}: {current} → {safe_value}")
+            if fixed_keys:
+                logger.warning(
+                    "[AUTO-FIX] Кэширование Text Encoder включено — "
+                    "автоматически отключены несовместимые параметры датасета:\n  "
+                    + "\n  ".join(fixed_keys)
+                )
+        
+        dataset_toml = toml.dumps(dataset_json)
         
         # Создаём парсер и аргументы
         parser = train_network_setup_parser()
@@ -824,12 +864,6 @@ class Flux2InitTraining:
             args, _ = parser.parse_known_args(args=shlex.split(additional_args))
         else:
             args, _ = parser.parse_known_args()
-        
-        # Настраиваем кэширование
-        cache_latents_to_disk = cache_latents == "disk"
-        cache_latents_enabled = cache_latents != "disabled"
-        cache_te_to_disk = cache_text_encoder_outputs == "disk"
-        cache_te_enabled = cache_text_encoder_outputs != "disabled"
         
         # Парсим sample prompts
         if '|' in sample_prompts:

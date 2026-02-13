@@ -87,61 +87,29 @@ const DASHBOARD_CSS = `
     display: flex;
 }
 
-/* === Overlay Backdrop === */
-.ftpro-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 9990;
-    background: rgba(0, 0, 0, 0.5);
-    visibility: hidden;
-    opacity: 0;
-    transition: opacity 0.15s ease, visibility 0s linear 0.15s;
-    contain: strict;
-    pointer-events: none;
-}
-.ftpro-overlay.open {
-    visibility: visible;
-    opacity: 1;
-    transition: opacity 0.15s ease, visibility 0s linear 0s;
-    pointer-events: auto;
-}
-
-/* === Main Dashboard Panel === */
+/* === Main Dashboard Panel (non-modal, не блокирует ComfyUI) === */
 .ftpro-dashboard {
     position: fixed;
     top: 50%;
     left: 50%;
-    transform: translate(-50%, -50%) scale(0.97);
+    transform: translate(-50%, -50%);
     z-index: 9991;
     width: 92vw;
     max-width: 1400px;
     height: 85vh;
     max-height: 900px;
     border-radius: 16px;
-    border: 1px solid rgba(99, 179, 237, 0.2);
-    background: linear-gradient(180deg, rgba(26, 32, 44, 0.98), rgba(17, 24, 39, 0.99));
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-    display: flex;
+    border: 1px solid rgba(99, 179, 237, 0.3);
+    background: linear-gradient(180deg, rgba(26, 32, 44, 0.99), rgba(17, 24, 39, 0.995));
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(99, 179, 237, 0.1);
+    display: none;
     flex-direction: column;
     overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #e2e8f0;
-    visibility: hidden;
-    opacity: 0;
-    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
-    contain: content;
-    will-change: opacity, transform;
-    pointer-events: none;
 }
 .ftpro-dashboard.open {
-    visibility: visible;
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0s;
-    pointer-events: auto;
+    display: flex;
 }
 
 /* === Header === */
@@ -867,20 +835,12 @@ class FTProDashboard {
         this._elements.toggleBtn = btn;
     }
 
-    // === Create Dashboard ===
+    // === Create Dashboard (non-modal — не блокирует ComfyUI) ===
     _createDashboard() {
-        // Overlay
-        const overlay = document.createElement('div');
-        overlay.className = 'ftpro-overlay';
-        overlay.addEventListener('click', () => this.close());
-        document.body.appendChild(overlay);
-        this._elements.overlay = overlay;
-
-        // Dashboard
+        // Dashboard — плавающая панель поверх ComfyUI, БЕЗ overlay
         const dash = document.createElement('div');
         dash.className = 'ftpro-dashboard';
         dash.innerHTML = this._renderHTML();
-        dash.addEventListener('click', e => e.stopPropagation());
         document.body.appendChild(dash);
         this._elements.dashboard = dash;
 
@@ -1133,11 +1093,27 @@ class FTProDashboard {
             );
         });
 
-        // Keyboard shortcut (Ctrl+Shift+T)
+        // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
+            // Escape — закрыть dashboard
+            if (e.key === 'Escape' && this.isOpen) {
+                this.close();
+                return;
+            }
+            // Ctrl+Shift+T — toggle dashboard
             if (e.ctrlKey && e.shiftKey && e.key === 'T') {
                 e.preventDefault();
                 this.toggle();
+            }
+        });
+
+        // Click outside dashboard — закрыть (но НЕ блокировать ComfyUI)
+        document.addEventListener('mousedown', (e) => {
+            if (!this.isOpen) return;
+            const dash = this._elements.dashboard;
+            const btn = this._elements.toggleBtn;
+            if (dash && !dash.contains(e.target) && btn && !btn.contains(e.target)) {
+                this.close();
             }
         });
     }
@@ -1431,11 +1407,8 @@ class FTProDashboard {
 
     open() {
         if (this.isOpen) return;
-        console.time('[FTPro] open');
         this.isOpen = true;
-        this._elements.overlay.classList.add('open');
         this._elements.dashboard.classList.add('open');
-        console.timeEnd('[FTPro] open');
         
         // Lightweight DOM update — no canvas, no fetch, just text
         this._openTimer = setTimeout(() => {
@@ -1456,7 +1429,6 @@ class FTProDashboard {
     close() {
         if (!this.isOpen) return;
         this.isOpen = false;
-        this._elements.overlay.classList.remove('open');
         this._elements.dashboard.classList.remove('open');
         
         // Cancel opening timer if still pending
