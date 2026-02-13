@@ -13,7 +13,7 @@
  *   - Менеджер датасетов
  *   - Система пресетов
  * 
- * v2.5.0 | (c) 2024-2026 nkVas1
+ * v2.6.0 | (c) 2024-2026 nkVas1
  */
 
 import { app } from "../../scripts/app.js";
@@ -77,7 +77,6 @@ const DASHBOARD_CSS = `
     color: #fff;
     font-size: 10px;
     font-weight: 700;
-    display: flex;
     align-items: center;
     justify-content: center;
     padding: 0 5px;
@@ -87,7 +86,7 @@ const DASHBOARD_CSS = `
     display: flex;
 }
 
-/* === Main Dashboard Panel (non-modal, не блокирует ComfyUI) === */
+/* === Main Dashboard Panel (non-modal, изолирован от ComfyUI) === */
 .ftpro-dashboard {
     position: fixed;
     top: 50%;
@@ -107,10 +106,36 @@ const DASHBOARD_CSS = `
     overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #e2e8f0;
+    /* Изоляция: содержимое dashboard НЕ влияет на layout/paint ComfyUI */
+    contain: layout style paint;
+    isolation: isolate;
 }
 .ftpro-dashboard.open {
     display: flex;
 }
+
+/* === Minimized State (компактная полоска, не закрывает ComfyUI) === */
+.ftpro-dashboard.minimized {
+    top: auto;
+    left: auto;
+    right: 90px;
+    bottom: 80px;
+    transform: none;
+    width: 420px;
+    max-width: 420px;
+    height: auto;
+    max-height: 64px;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    contain: layout style;
+}
+.ftpro-dashboard.minimized .ftpro-tabs,
+.ftpro-dashboard.minimized .ftpro-content,
+.ftpro-dashboard.minimized .ftpro-footer,
+.ftpro-dashboard.minimized .ftpro-progress-bar-container { display: none !important; }
+.ftpro-dashboard.minimized .ftpro-header { padding: 10px 16px; }
+.ftpro-dashboard.minimized .ftpro-logo { font-size: 14px; }
+.ftpro-dashboard.minimized .ftpro-version { display: none; }
 
 /* === Header === */
 .ftpro-header {
@@ -190,6 +215,25 @@ const DASHBOARD_CSS = `
     background: rgba(245, 101, 101, 0.15);
     color: #fc8181;
     border-color: rgba(245, 101, 101, 0.3);
+}
+.ftpro-minimize-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    color: #a0aec0;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+.ftpro-minimize-btn:hover {
+    background: rgba(99, 179, 237, 0.15);
+    color: #63b3ed;
+    border-color: rgba(99, 179, 237, 0.3);
 }
 
 /* === Tab Bar === */
@@ -802,6 +846,7 @@ class FTProDashboard {
         this._elements = {};
         this._chartUpdating = false;
         this._chartUpdateTimer = null;
+        this._isMinimized = false;
         
         // Tabs definition
         this.tabs = [
@@ -853,6 +898,24 @@ class FTProDashboard {
         // Close button
         dash.querySelector('.ftpro-close-btn').addEventListener('click', () => this.close());
 
+        // Minimize/Maximize button
+        const minBtn = dash.querySelector('.ftpro-minimize-btn');
+        if (minBtn) {
+            minBtn.addEventListener('click', () => {
+                if (this._isMinimized) {
+                    this._isMinimized = false;
+                    dash.classList.remove('minimized');
+                    minBtn.textContent = '−';
+                    minBtn.title = 'Свернуть';
+                } else {
+                    this._isMinimized = true;
+                    dash.classList.add('minimized');
+                    minBtn.textContent = '□';
+                    minBtn.title = 'Развернуть';
+                }
+            });
+        }
+
         // Tab clicks
         dash.querySelectorAll('.ftpro-tab').forEach(tab => {
             tab.addEventListener('click', () => this.switchTab(tab.dataset.tab));
@@ -867,13 +930,16 @@ class FTProDashboard {
             <div class="ftpro-header">
                 <div class="ftpro-header-left">
                     <div class="ftpro-logo">FluxTrainer Pro</div>
-                    <div class="ftpro-version">v2.5.0</div>
+                    <div class="ftpro-version">v2.6.0</div>
                     <div class="ftpro-status-pill idle" id="ftpro-status-pill">
                         <div class="ftpro-status-dot"></div>
                         <span>idle</span>
                     </div>
                 </div>
-                <button class="ftpro-close-btn">✕</button>
+                <div style="display:flex;gap:6px;align-items:center">
+                    <button class="ftpro-minimize-btn" title="Свернуть">−</button>
+                    <button class="ftpro-close-btn" title="Закрыть">✕</button>
+                </div>
             </div>
 
             <!-- Tab Bar -->
@@ -1093,27 +1159,18 @@ class FTProDashboard {
             );
         });
 
-        // Keyboard shortcuts
+        // Keyboard shortcut: Ctrl+Shift+T — toggle dashboard
+        // ВАЖНО: НЕ используем document-level mousedown/click listeners!
+        // Они вызывают DOM-мутации во время обработки событий LiteGraph,
+        // что ломает event chain и делает ComfyUI неработоспособным.
         document.addEventListener('keydown', (e) => {
-            // Escape — закрыть dashboard
             if (e.key === 'Escape' && this.isOpen) {
                 this.close();
                 return;
             }
-            // Ctrl+Shift+T — toggle dashboard
             if (e.ctrlKey && e.shiftKey && e.key === 'T') {
                 e.preventDefault();
                 this.toggle();
-            }
-        });
-
-        // Click outside dashboard — закрыть (но НЕ блокировать ComfyUI)
-        document.addEventListener('mousedown', (e) => {
-            if (!this.isOpen) return;
-            const dash = this._elements.dashboard;
-            const btn = this._elements.toggleBtn;
-            if (dash && !dash.contains(e.target) && btn && !btn.contains(e.target)) {
-                this.close();
             }
         });
     }
@@ -1408,7 +1465,12 @@ class FTProDashboard {
     open() {
         if (this.isOpen) return;
         this.isOpen = true;
+        this._isMinimized = false;
+        this._elements.dashboard.classList.remove('minimized');
         this._elements.dashboard.classList.add('open');
+        // Reset minimize button
+        const minBtn = this._elements.dashboard.querySelector('.ftpro-minimize-btn');
+        if (minBtn) { minBtn.textContent = '−'; minBtn.title = 'Свернуть'; }
         
         // Lightweight DOM update — no canvas, no fetch, just text
         this._openTimer = setTimeout(() => {
@@ -1429,7 +1491,8 @@ class FTProDashboard {
     close() {
         if (!this.isOpen) return;
         this.isOpen = false;
-        this._elements.dashboard.classList.remove('open');
+        this._isMinimized = false;
+        this._elements.dashboard.classList.remove('open', 'minimized');
         
         // Cancel opening timer if still pending
         if (this._openTimer) {

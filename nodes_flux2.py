@@ -884,6 +884,18 @@ class Flux2InitTraining:
         # Flux-specific: train_on_input улучшает качество на некоторых моделях
         # Опционально можно добавить через additional_args
         
+        # ========================================================
+        # AUTO-FIX: blocks_to_swap несовместим с cpu_offload_checkpointing
+        # (вызывает AssertionError в flux_train_network_comfy.py)
+        # ========================================================
+        if (low_vram_config.blocks_to_swap and low_vram_config.blocks_to_swap > 0 
+                and low_vram_config.cpu_offload_checkpointing):
+            logger.warning(
+                "[AUTO-FIX] blocks_to_swap=%d несовместим с cpu_offload_checkpointing — "
+                "автоматически отключаем cpu_offload_checkpointing",
+                low_vram_config.blocks_to_swap
+            )
+        
         config_dict = {
             # Модели
             "pretrained_model_name_or_path": flux2_models["transformer"],
@@ -925,8 +937,14 @@ class Flux2InitTraining:
             "full_fp16": gradient_dtype == "fp16",
             
             # Memory optimizations from low_vram_config
+            # AUTO-FIX: blocks_to_swap несовместим с cpu_offload_checkpointing
+            # (AssertionError в flux_train_network_comfy.py:48)
             "gradient_checkpointing": low_vram_config.gradient_checkpointing,
-            "cpu_offload_checkpointing": low_vram_config.cpu_offload_checkpointing,
+            "cpu_offload_checkpointing": (
+                low_vram_config.cpu_offload_checkpointing
+                if not (low_vram_config.blocks_to_swap and low_vram_config.blocks_to_swap > 0)
+                else False
+            ),
             "blocks_to_swap": low_vram_config.blocks_to_swap,
             "fp8_base": low_vram_config.use_fp8_base,
             "fp8_base_unet": low_vram_config.use_fp8_base,

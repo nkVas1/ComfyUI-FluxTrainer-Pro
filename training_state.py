@@ -214,7 +214,7 @@ class TrainingState:
                 import torch
                 if torch.cuda.is_available():
                     vram_used = torch.cuda.memory_allocated() / (1024 ** 3)
-                    vram_total = torch.cuda.get_device_properties(0).total_mem / (1024 ** 3)
+                    vram_total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
                     self.vram_history.append({"step": step, "used": vram_used, "total": vram_total, "t": now})
             except Exception:
                 pass
