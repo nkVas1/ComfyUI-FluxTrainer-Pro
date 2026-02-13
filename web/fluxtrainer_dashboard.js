@@ -34,13 +34,12 @@ const DASHBOARD_CSS = `
     position: fixed;
     bottom: 80px;
     right: 20px;
-    z-index: 9999;
+    z-index: 999;
     width: 56px;
     height: 56px;
     border-radius: 50%;
     border: 2px solid rgba(99, 179, 237, 0.4);
     background: linear-gradient(135deg, rgba(26, 32, 44, 0.95), rgba(45, 55, 72, 0.95));
-    backdrop-filter: blur(10px);
     color: #63b3ed;
     font-size: 24px;
     cursor: pointer;
@@ -48,7 +47,7 @@ const DASHBOARD_CSS = `
     align-items: center;
     justify-content: center;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 30px rgba(99, 179, 237, 0.1);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     user-select: none;
 }
 .ftpro-toggle-btn:hover {
@@ -90,56 +89,42 @@ const DASHBOARD_CSS = `
 
 /* === Overlay Backdrop === */
 .ftpro-overlay {
+    display: none;
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 10000;
-    background: rgba(0, 0, 0, 0.6);
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition: opacity 0.3s ease, visibility 0.3s ease;
+    z-index: 9990;
+    background: rgba(0, 0, 0, 0.5);
 }
 .ftpro-overlay.open {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    backdrop-filter: blur(4px);
+    display: block;
 }
 
 /* === Main Dashboard Panel === */
 .ftpro-dashboard {
+    display: none;
     position: fixed;
     top: 50%;
     left: 50%;
-    transform: translate(-50%, -50%) scale(0.95);
-    z-index: 10001;
+    transform: translate(-50%, -50%);
+    z-index: 9991;
     width: 92vw;
     max-width: 1400px;
     height: 85vh;
     max-height: 900px;
     border-radius: 16px;
     border: 1px solid rgba(99, 179, 237, 0.2);
-    background: linear-gradient(180deg, rgba(26, 32, 44, 0.97), rgba(17, 24, 39, 0.98));
+    background: linear-gradient(180deg, rgba(26, 32, 44, 0.98), rgba(17, 24, 39, 0.99));
     box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6), 0 0 60px rgba(99, 179, 237, 0.08);
-    display: flex;
     flex-direction: column;
     overflow: hidden;
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #e2e8f0;
 }
 .ftpro-dashboard.open {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    backdrop-filter: blur(20px);
-    transform: translate(-50%, -50%) scale(1);
+    display: flex;
 }
 
 /* === Header === */
@@ -795,8 +780,7 @@ class FTProDashboard {
         this._createToggleButton();
         this._createDashboard();
         this._setupEventHandlers();
-        // WebSocket only (for badge updates), no polling until dashboard opened
-        this.api._setupWebSocket();
+        // WebSocket и polling запускаются ТОЛЬКО при открытии dashboard
     }
 
     // === Create Toggle Button ===
@@ -844,8 +828,7 @@ class FTProDashboard {
             tab.addEventListener('click', () => this.switchTab(tab.dataset.tab));
         });
 
-        // Init charts after DOM is ready
-        requestAnimationFrame(() => this._initCharts());
+        // Charts инициализируются при первом открытии dashboard (когда canvases visible)
     }
 
     _renderHTML() {
