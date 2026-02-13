@@ -151,7 +151,7 @@ def _lazy_import_training():
     except Exception as e:
         _IMPORT_ERROR = str(e)
         import traceback
-        import sys
+        # sys already imported at module level (line 21)
         
         # Детальная диагностика ошибки
         error_lower = str(e).lower()

@@ -1,6 +1,6 @@
 {
   "last_node_id": 35,
-  "last_link_id": 45,
+  "last_link_id": 22,
   "nodes": [
     {
       "id": 1,
@@ -319,6 +319,7 @@
       "widgets_values": [
         "my_flux2_lora",
         "flux2_trainer_output",
+        "lora",
         16,
         16.0,
         0.0001,
@@ -329,6 +330,10 @@
         "bf16",
         "fused_backward_pass",
         "a photo of sks person | a painting of sks person in anime style",
+        "logit_normal",
+        "sigmoid",
+        true,
+        true,
         "",
         42
       ]
@@ -385,7 +390,7 @@
         {
           "name": "network_trainer",
           "type": "NETWORKTRAINER",
-          "links": [13],
+          "links": [13, 20, 21],
           "slot_index": 0
         },
         {
@@ -448,7 +453,7 @@
         "Node name for S&R": "LossGraphAdvanced"
       },
       "widgets_values": [
-        "default",
+        "ggplot",
         true,
         100,
         true,
@@ -488,7 +493,7 @@
         {
           "name": "network_trainer",
           "type": "NETWORKTRAINER",
-          "link": 13
+          "link": 20
         }
       ],
       "outputs": [
@@ -538,14 +543,14 @@
         {
           "name": "network_trainer",
           "type": "NETWORKTRAINER",
-          "link": 13
+          "link": 21
         }
       ],
       "outputs": [
         {
           "name": "network_trainer",
           "type": "NETWORKTRAINER",
-          "links": [16],
+          "links": [16, 22],
           "slot_index": 0
         },
         {
@@ -608,7 +613,7 @@
         {
           "name": "update_trigger",
           "type": "*",
-          "link": 16
+          "link": 22
         },
         {
           "name": "network_trainer",
@@ -683,6 +688,9 @@
     [14, 13, 0, 14, 0, "IMAGE"],
     [15, 15, 0, null, null, "STRING"],
     [16, 16, 0, 17, 0, "NETWORKTRAINER"],
+    [20, 12, 0, 15, 0, "NETWORKTRAINER"],
+    [21, 12, 0, 16, 0, "NETWORKTRAINER"],
+    [22, 16, 0, 18, 0, "NETWORKTRAINER"],
     [17, 16, 1, null, null, "STRING"],
     [18, 17, 0, null, null, "STRING"],
     [19, 18, 0, 19, 0, "IMAGE"]
