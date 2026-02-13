@@ -137,7 +137,9 @@ class DatasetPreviewGrid:
 
     def create_preview(self, dataset_path, grid_cols, grid_rows, image_size, 
                        show_captions, caption_extension, random_seed):
-        from PIL import ImageDraw, ImageFont
+        import numpy as np
+        from PIL import Image, ImageDraw, ImageFont
+        from torchvision import transforms
         
         if not os.path.exists(dataset_path):
             raise ValueError(f"Dataset path does not exist: {dataset_path}")
@@ -620,7 +622,10 @@ class LossGraphAdvanced:
 
     def plot(self, network_trainer, plot_style, show_moving_avg, moving_avg_window,
              show_min_max, show_trend, width, height):
-        # [SENIOR FIX] Import matplotlib locally
+        import numpy as np
+        from PIL import Image
+        from torchvision import transforms
+        import io
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt

@@ -804,7 +804,7 @@ class FTProDashboard {
         this._state = {};
         this._elements = {};
         this._chartsInitialized = false;
-        this._chartUpdatePending = false;
+        this._chartUpdating = false;
         this._chartUpdateTimer = null;
         
         // Tabs definition
@@ -1209,22 +1209,18 @@ class FTProDashboard {
     }
 
     _scheduleChartUpdate() {
-        if (this._chartUpdatePending) return;
-        this._chartUpdatePending = true;
-        
+        // Debounce: перезапускаем таймер при каждом вызове,
+        // chart update начнётся через 500ms после ПОСЛЕДНЕГО вызова
         if (this._chartUpdateTimer) clearTimeout(this._chartUpdateTimer);
-        this._chartUpdateTimer = setTimeout(async () => {
-            this._chartUpdatePending = false;
-            try {
-                await this._updateCharts();
-            } catch (e) {
-                console.debug('[FTPro] Chart update error:', e.message);
-            }
+        this._chartUpdateTimer = setTimeout(() => {
+            this._chartUpdateTimer = null;
+            this._updateCharts(); // _updateCharts имеет собственную защиту от concurrent
         }, 500);
     }
 
     async _updateCharts() {
-        if (!this.isOpen) return;
+        if (!this.isOpen || this._chartUpdating) return;
+        this._chartUpdating = true;
         
         try {
             // Loss chart
@@ -1254,6 +1250,8 @@ class FTProDashboard {
             }
         } catch (e) {
             console.debug('[FTPro] Chart data fetch error:', e.message);
+        } finally {
+            this._chartUpdating = false;
         }
     }
 
@@ -1451,7 +1449,7 @@ class FTProDashboard {
             clearTimeout(this._chartUpdateTimer);
             this._chartUpdateTimer = null;
         }
-        this._chartUpdatePending = false;
+        this._chartUpdating = false;
     }
 }
 

@@ -166,11 +166,11 @@ def parse_prompt_attention(text):
       (abc) - increases attention to abc by a multiplier of 1.1
       (abc:3.12) - increases attention to abc by a multiplier of 3.12
       [abc] - decreases attention to abc by a multiplier of 1.1
-      \( - literal character '('
-      \[ - literal character '['
-      \) - literal character ')'
-      \] - literal character ']'
-      \\ - literal character '\'
+      \\( - literal character '('
+      \\[ - literal character '['
+      \\) - literal character ')'
+      \\] - literal character ']'
+      \\\\ - literal character '\\'
       anything else - just text
     >>> parse_prompt_attention('normal text')
     [['normal text', 1.0]]
