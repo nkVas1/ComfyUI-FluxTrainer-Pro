@@ -1,0 +1,2115 @@
+{
+  "id": "5c3dab31-b6f4-41a4-a774-7fa4e852561a",
+  "revision": 0,
+  "last_node_id": 39,
+  "last_link_id": 51,
+  "nodes": [
+    {
+      "id": 5,
+      "type": "OptimizerConfig",
+      "pos": [
+        809.4445996501101,
+        278.24593268470784
+      ],
+      "size": [
+        300,
+        261
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "optimizer_type",
+          "name": "optimizer_type",
+          "type": "COMBO",
+          "widget": {
+            "name": "optimizer_type"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "max_grad_norm",
+          "name": "max_grad_norm",
+          "type": "FLOAT",
+          "widget": {
+            "name": "max_grad_norm"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "lr_scheduler",
+          "name": "lr_scheduler",
+          "type": "COMBO",
+          "widget": {
+            "name": "lr_scheduler"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "lr_warmup_steps",
+          "name": "lr_warmup_steps",
+          "type": "INT",
+          "widget": {
+            "name": "lr_warmup_steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "lr_scheduler_num_cycles",
+          "name": "lr_scheduler_num_cycles",
+          "type": "INT",
+          "widget": {
+            "name": "lr_scheduler_num_cycles"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "lr_scheduler_power",
+          "name": "lr_scheduler_power",
+          "type": "FLOAT",
+          "widget": {
+            "name": "lr_scheduler_power"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "min_snr_gamma",
+          "name": "min_snr_gamma",
+          "type": "FLOAT",
+          "widget": {
+            "name": "min_snr_gamma"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "extra_optimizer_args",
+          "name": "extra_optimizer_args",
+          "type": "STRING",
+          "widget": {
+            "name": "extra_optimizer_args"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "optimizer_settings",
+          "name": "optimizer_settings",
+          "type": "ARGS",
+          "slot_index": 0,
+          "links": [
+            5
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "OptimizerConfig",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "adamw8bit",
+        1,
+        "constant_with_warmup",
+        100,
+        1,
+        1,
+        5,
+        "",
+        [
+          false,
+          true
+        ]
+      ],
+      "color": "#5a3f3f",
+      "bgcolor": "#3d2a2a"
+    },
+    {
+      "id": 16,
+      "type": "Flux2TrainSave",
+      "pos": [
+        2106.8520535888792,
+        -19.13959455177969
+      ],
+      "size": [
+        350,
+        122
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "network_trainer",
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "link": 50
+        },
+        {
+          "localized_name": "save_state",
+          "name": "save_state",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "save_state"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "copy_to_comfy_lora_folder",
+          "name": "copy_to_comfy_lora_folder",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "copy_to_comfy_lora_folder"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "network_trainer",
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "slot_index": 0,
+          "links": [
+            16,
+            51
+          ]
+        },
+        {
+          "localized_name": "lora_path",
+          "name": "lora_path",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": [
+            17
+          ]
+        },
+        {
+          "localized_name": "steps",
+          "name": "steps",
+          "type": "INT",
+          "slot_index": 2,
+          "links": null
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "Flux2TrainSave",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        false,
+        true
+      ],
+      "color": "#2d5a3f",
+      "bgcolor": "#1a3d2a"
+    },
+    {
+      "id": 18,
+      "type": "MemoryMonitorDisplay",
+      "pos": [
+        2125.7085420587255,
+        503.62361988619404
+      ],
+      "size": [
+        350,
+        100
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "update_trigger",
+          "name": "update_trigger",
+          "type": "*",
+          "link": 51
+        },
+        {
+          "localized_name": "network_trainer",
+          "name": "network_trainer",
+          "shape": 7,
+          "type": "NETWORKTRAINER",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "memory_chart",
+          "name": "memory_chart",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            19
+          ]
+        },
+        {
+          "localized_name": "memory_info",
+          "name": "memory_info",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": null
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "MemoryMonitorDisplay",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 19,
+      "type": "PreviewImage",
+      "pos": [
+        2565.5161472997875,
+        315.06103697703577
+      ],
+      "size": [
+        400,
+        250
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 19
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.11.1",
+        "Node name for S&R": "PreviewImage",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 14,
+      "type": "PreviewImage",
+      "pos": [
+        2571.973244884085,
+        633.4106044301973
+      ],
+      "size": [
+        400,
+        300
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 14
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.11.1",
+        "Node name for S&R": "PreviewImage",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 17,
+      "type": "Flux2TrainEnd",
+      "pos": [
+        2557.135332305009,
+        -40.09105659139003
+      ],
+      "size": [
+        300,
+        80
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "network_trainer",
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "final_lora_path",
+          "name": "final_lora_path",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "Flux2TrainEnd",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [],
+      "color": "#2d5a3f",
+      "bgcolor": "#1a3d2a"
+    },
+    {
+      "id": 15,
+      "type": "TrainingProgressDisplay",
+      "pos": [
+        1643.9980127384479,
+        700.8500663273251
+      ],
+      "size": [
+        350,
+        166
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "network_trainer",
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "link": 49
+        },
+        {
+          "localized_name": "show_eta",
+          "name": "show_eta",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "show_eta"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "show_loss_stats",
+          "name": "show_loss_stats",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "show_loss_stats"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "show_lr",
+          "name": "show_lr",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "show_lr"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "progress_report",
+          "name": "progress_report",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": [
+            15
+          ]
+        },
+        {
+          "localized_name": "current_loss",
+          "name": "current_loss",
+          "type": "FLOAT",
+          "slot_index": 1,
+          "links": null
+        },
+        {
+          "localized_name": "avg_loss",
+          "name": "avg_loss",
+          "type": "FLOAT",
+          "slot_index": 2,
+          "links": null
+        },
+        {
+          "localized_name": "current_step",
+          "name": "current_step",
+          "type": "INT",
+          "slot_index": 3,
+          "links": null
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "TrainingProgressDisplay",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": 13,
+      "type": "LossGraphAdvanced",
+      "pos": [
+        1641.902808989753,
+        306.5687748727471
+      ],
+      "size": [
+        350,
+        262
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "network_trainer",
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "link": 13
+        },
+        {
+          "localized_name": "plot_style",
+          "name": "plot_style",
+          "type": "COMBO",
+          "widget": {
+            "name": "plot_style"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "show_moving_avg",
+          "name": "show_moving_avg",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "show_moving_avg"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "moving_avg_window",
+          "name": "moving_avg_window",
+          "type": "INT",
+          "widget": {
+            "name": "moving_avg_window"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "show_min_max",
+          "name": "show_min_max",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "show_min_max"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "show_trend",
+          "name": "show_trend",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "show_trend"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "width",
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "height",
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "loss_graph",
+          "name": "loss_graph",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            14
+          ]
+        },
+        {
+          "localized_name": "min_loss",
+          "name": "min_loss",
+          "type": "FLOAT",
+          "slot_index": 1,
+          "links": null
+        },
+        {
+          "localized_name": "max_loss",
+          "name": "max_loss",
+          "type": "FLOAT",
+          "slot_index": 2,
+          "links": null
+        },
+        {
+          "localized_name": "final_loss",
+          "name": "final_loss",
+          "type": "FLOAT",
+          "slot_index": 3,
+          "links": null
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "LossGraphAdvanced",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "ggplot",
+        true,
+        100,
+        true,
+        true,
+        1024,
+        600
+      ]
+    },
+    {
+      "id": 12,
+      "type": "Flux2TrainAndValidateLoop",
+      "pos": [
+        1631.4272506041523,
+        35.33399095845567
+      ],
+      "size": [
+        350,
+        150
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "network_trainer",
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "link": 10
+        },
+        {
+          "localized_name": "validation_settings",
+          "name": "validation_settings",
+          "shape": 7,
+          "type": "VALSETTINGS",
+          "link": null
+        },
+        {
+          "localized_name": "validate_at_steps",
+          "name": "validate_at_steps",
+          "type": "INT",
+          "widget": {
+            "name": "validate_at_steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "save_at_steps",
+          "name": "save_at_steps",
+          "type": "INT",
+          "widget": {
+            "name": "save_at_steps"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "network_trainer",
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "slot_index": 0,
+          "links": [
+            13,
+            49,
+            50
+          ]
+        },
+        {
+          "localized_name": "final_step",
+          "name": "final_step",
+          "type": "INT",
+          "slot_index": 1,
+          "links": null
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "Flux2TrainAndValidateLoop",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        250,
+        500
+      ],
+      "color": "#2d5a3f",
+      "bgcolor": "#1a3d2a"
+    },
+    {
+      "id": 20,
+      "type": "Note",
+      "pos": [
+        -383.1178103336774,
+        -374.8759857181312
+      ],
+      "size": [
+        700,
+        200
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "🚀 FLUX.2 LOW VRAM TRAINING WORKFLOW\n═══════════════════════════════════════\n\n📋 INSTRUCTIONS:\n1. Set your model paths in 'Flux.2 Model Select'\n2. Set your dataset path in 'TrainDatasetAdd' and 'DatasetPreviewGrid'\n3. Adjust 'Flux.2 Low VRAM Config' for your GPU:\n   - 8GB: aggressive, blocks_to_swap=25\n   - 12GB: conservative, blocks_to_swap=15\n4. Set class_tokens (trigger word) and num_repeats\n5. Adjust learning_rate (recommended: 1e-4 to 5e-4)\n6. Run 'Queue Prompt' to start training\n\n⚠️ TIPS FOR LOW VRAM:\n- Use batch_size=1 with gradient_accumulation\n- Enable all offloading options\n- Use 'disk' cache for latents and text encoder\n- network_dim=16 is a good balance"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 3,
+      "type": "TrainDatasetGeneralConfig",
+      "pos": [
+        429.5035291663291,
+        371.65035186894585
+      ],
+      "size": [
+        300,
+        202
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "color_aug",
+          "name": "color_aug",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "color_aug"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "flip_aug",
+          "name": "flip_aug",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "flip_aug"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "shuffle_caption",
+          "name": "shuffle_caption",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "shuffle_caption"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "caption_dropout_rate",
+          "name": "caption_dropout_rate",
+          "type": "FLOAT",
+          "widget": {
+            "name": "caption_dropout_rate"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "alpha_mask",
+          "name": "alpha_mask",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "alpha_mask"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "reset_on_queue",
+          "name": "reset_on_queue",
+          "shape": 7,
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "reset_on_queue"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "caption_extension",
+          "name": "caption_extension",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "caption_extension"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "dataset_general",
+          "name": "dataset_general",
+          "type": "JSON",
+          "slot_index": 0,
+          "links": [
+            3
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "TrainDatasetGeneralConfig",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        false,
+        true,
+        true,
+        0.05,
+        false,
+        false,
+        ".txt"
+      ],
+      "color": "#5a3f3f",
+      "bgcolor": "#3d2a2a"
+    },
+    {
+      "id": 2,
+      "type": "Flux2LowVRAMConfig",
+      "pos": [
+        -290.88175314526455,
+        288.56494542655787
+      ],
+      "size": [
+        350,
+        300
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "strategy",
+          "name": "strategy",
+          "type": "COMBO",
+          "widget": {
+            "name": "strategy"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "available_vram_gb",
+          "name": "available_vram_gb",
+          "type": "FLOAT",
+          "widget": {
+            "name": "available_vram_gb"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "available_ram_gb",
+          "name": "available_ram_gb",
+          "type": "FLOAT",
+          "widget": {
+            "name": "available_ram_gb"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "blocks_to_swap",
+          "name": "blocks_to_swap",
+          "type": "INT",
+          "widget": {
+            "name": "blocks_to_swap"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "gradient_checkpointing",
+          "name": "gradient_checkpointing",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "gradient_checkpointing"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "cpu_offload_checkpointing",
+          "name": "cpu_offload_checkpointing",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "cpu_offload_checkpointing"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "cache_text_encoder",
+          "name": "cache_text_encoder",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "cache_text_encoder"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "optimizer_cpu_offload",
+          "name": "optimizer_cpu_offload",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "optimizer_cpu_offload"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_fp8_base",
+          "name": "use_fp8_base",
+          "shape": 7,
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_fp8_base"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "empty_cache_frequently",
+          "name": "empty_cache_frequently",
+          "shape": 7,
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "empty_cache_frequently"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "low_vram_config",
+          "name": "low_vram_config",
+          "type": "FLUX2_LOW_VRAM_CONFIG",
+          "slot_index": 0,
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "Flux2LowVRAMConfig",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "aggressive",
+        8,
+        32,
+        25,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "color": "#2d5a3f",
+      "bgcolor": "#1a3d2a"
+    },
+    {
+      "id": 7,
+      "type": "PreviewImage",
+      "pos": [
+        901.702489472383,
+        747.2457058022133
+      ],
+      "size": [
+        667.8048261082399,
+        424.17846093012815
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 6
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.11.1",
+        "Node name for S&R": "PreviewImage",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 39,
+      "type": "Flux2TrainModelSelect",
+      "pos": [
+        -278.45963308399075,
+        -18.74479075757047
+      ],
+      "size": [
+        400,
+        200
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "transformer",
+          "name": "transformer",
+          "type": "COMBO",
+          "widget": {
+            "name": "transformer"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "vae",
+          "name": "vae",
+          "type": "COMBO",
+          "widget": {
+            "name": "vae"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "clip_l",
+          "name": "clip_l",
+          "type": "COMBO",
+          "widget": {
+            "name": "clip_l"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "t5",
+          "name": "t5",
+          "type": "COMBO",
+          "widget": {
+            "name": "t5"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "lora_path",
+          "name": "lora_path",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "lora_path"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "flux2_models",
+          "name": "flux2_models",
+          "type": "TRAIN_FLUX2_MODELS",
+          "links": [
+            48
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "Flux2TrainModelSelect",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "flux2Klein_9bBase.safetensors",
+        "flux2-vae.safetensors",
+        "qwen_3_8b.safetensors",
+        "qwen_3_8b.safetensors",
+        ""
+      ],
+      "color": "#2d5a3f",
+      "bgcolor": "#1a3d2a"
+    },
+    {
+      "id": 6,
+      "type": "DatasetPreviewGrid",
+      "pos": [
+        453.54799871786327,
+        714.2969094943205
+      ],
+      "size": [
+        300,
+        277
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "dataset_path",
+          "name": "dataset_path",
+          "type": "STRING",
+          "widget": {
+            "name": "dataset_path"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "grid_cols",
+          "name": "grid_cols",
+          "type": "INT",
+          "widget": {
+            "name": "grid_cols"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "grid_rows",
+          "name": "grid_rows",
+          "type": "INT",
+          "widget": {
+            "name": "grid_rows"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "image_size",
+          "name": "image_size",
+          "type": "INT",
+          "widget": {
+            "name": "image_size"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "show_captions",
+          "name": "show_captions",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "show_captions"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "caption_extension",
+          "name": "caption_extension",
+          "type": "STRING",
+          "widget": {
+            "name": "caption_extension"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "random_seed",
+          "name": "random_seed",
+          "type": "INT",
+          "widget": {
+            "name": "random_seed"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "preview_grid",
+          "name": "preview_grid",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            6
+          ]
+        },
+        {
+          "localized_name": "dataset_info",
+          "name": "dataset_info",
+          "type": "STRING",
+          "slot_index": 1,
+          "links": [
+            7
+          ]
+        },
+        {
+          "localized_name": "total_images",
+          "name": "total_images",
+          "type": "INT",
+          "slot_index": 2,
+          "links": null
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "DatasetPreviewGrid",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "G:\\ComfyUI-StableDif-t27-p312-cu128-v2.1\\ComfyUI\\kohya_train\\mallorav1",
+        4,
+        4,
+        256,
+        true,
+        ".txt",
+        0,
+        [
+          false,
+          true
+        ]
+      ],
+      "color": "#5a3f3f",
+      "bgcolor": "#3d2a2a"
+    },
+    {
+      "id": 8,
+      "type": "DatasetValidator",
+      "pos": [
+        64.1918649414456,
+        732.0366757061255
+      ],
+      "size": [
+        350,
+        205
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "dataset_path",
+          "name": "dataset_path",
+          "type": "STRING",
+          "widget": {
+            "name": "dataset_path"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "caption_extension",
+          "name": "caption_extension",
+          "type": "STRING",
+          "widget": {
+            "name": "caption_extension"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "min_resolution",
+          "name": "min_resolution",
+          "type": "INT",
+          "widget": {
+            "name": "min_resolution"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "check_duplicates",
+          "name": "check_duplicates",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "check_duplicates"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "validation_report",
+          "name": "validation_report",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": [
+            8
+          ]
+        },
+        {
+          "localized_name": "is_valid",
+          "name": "is_valid",
+          "type": "BOOLEAN",
+          "slot_index": 1,
+          "links": null
+        },
+        {
+          "localized_name": "issue_count",
+          "name": "issue_count",
+          "type": "INT",
+          "slot_index": 2,
+          "links": null
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "DatasetValidator",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "G:\\ComfyUI-StableDif-t27-p312-cu128-v2.1\\ComfyUI\\kohya_train\\mallorav1",
+        ".txt",
+        512,
+        true,
+        [
+          false,
+          true
+        ]
+      ],
+      "color": "#5a3f3f",
+      "bgcolor": "#3d2a2a"
+    },
+    {
+      "id": 11,
+      "type": "Flux2MemoryEstimator",
+      "pos": [
+        807.8705285312335,
+        13.140522825853825
+      ],
+      "size": [
+        300,
+        150
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "low_vram_config",
+          "name": "low_vram_config",
+          "shape": 7,
+          "type": "FLUX2_LOW_VRAM_CONFIG",
+          "link": null
+        },
+        {
+          "localized_name": "model_type",
+          "name": "model_type",
+          "type": "COMBO",
+          "widget": {
+            "name": "model_type"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "network_dim",
+          "name": "network_dim",
+          "type": "INT",
+          "widget": {
+            "name": "network_dim"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "batch_size",
+          "name": "batch_size",
+          "type": "INT",
+          "widget": {
+            "name": "batch_size"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "resolution",
+          "name": "resolution",
+          "type": "INT",
+          "widget": {
+            "name": "resolution"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "memory_report",
+          "name": "memory_report",
+          "type": "STRING",
+          "slot_index": 0,
+          "links": [
+            12
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "Flux2MemoryEstimator",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "flux2_klein_9b",
+        16,
+        1,
+        512
+      ],
+      "color": "#2d5a3f",
+      "bgcolor": "#1a3d2a"
+    },
+    {
+      "id": 10,
+      "type": "Flux2InitTraining",
+      "pos": [
+        1161.213844519775,
+        45.76731705442104
+      ],
+      "size": [
+        400,
+        644
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "flux2_models",
+          "name": "flux2_models",
+          "type": "TRAIN_FLUX2_MODELS",
+          "link": 48
+        },
+        {
+          "localized_name": "dataset",
+          "name": "dataset",
+          "type": "JSON",
+          "link": 4
+        },
+        {
+          "localized_name": "optimizer_settings",
+          "name": "optimizer_settings",
+          "type": "ARGS",
+          "link": 5
+        },
+        {
+          "localized_name": "low_vram_config",
+          "name": "low_vram_config",
+          "shape": 7,
+          "type": "FLUX2_LOW_VRAM_CONFIG",
+          "link": 2
+        },
+        {
+          "localized_name": "output_name",
+          "name": "output_name",
+          "type": "STRING",
+          "widget": {
+            "name": "output_name"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "output_dir",
+          "name": "output_dir",
+          "type": "STRING",
+          "widget": {
+            "name": "output_dir"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "network_type",
+          "name": "network_type",
+          "type": "COMBO",
+          "widget": {
+            "name": "network_type"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "network_dim",
+          "name": "network_dim",
+          "type": "INT",
+          "widget": {
+            "name": "network_dim"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "network_alpha",
+          "name": "network_alpha",
+          "type": "FLOAT",
+          "widget": {
+            "name": "network_alpha"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "learning_rate",
+          "name": "learning_rate",
+          "type": "FLOAT",
+          "widget": {
+            "name": "learning_rate"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "max_train_steps",
+          "name": "max_train_steps",
+          "type": "INT",
+          "widget": {
+            "name": "max_train_steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "cache_latents",
+          "name": "cache_latents",
+          "type": "COMBO",
+          "widget": {
+            "name": "cache_latents"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "cache_text_encoder_outputs",
+          "name": "cache_text_encoder_outputs",
+          "type": "COMBO",
+          "widget": {
+            "name": "cache_text_encoder_outputs"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "gradient_dtype",
+          "name": "gradient_dtype",
+          "type": "COMBO",
+          "widget": {
+            "name": "gradient_dtype"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "save_dtype",
+          "name": "save_dtype",
+          "type": "COMBO",
+          "widget": {
+            "name": "save_dtype"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "optimizer_fusing",
+          "name": "optimizer_fusing",
+          "type": "COMBO",
+          "widget": {
+            "name": "optimizer_fusing"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "sample_prompts",
+          "name": "sample_prompts",
+          "type": "STRING",
+          "widget": {
+            "name": "sample_prompts"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "weighting_scheme",
+          "name": "weighting_scheme",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "weighting_scheme"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "timestep_sampling",
+          "name": "timestep_sampling",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "timestep_sampling"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "auto_resume",
+          "name": "auto_resume",
+          "shape": 7,
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "auto_resume"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "check_vram",
+          "name": "check_vram",
+          "shape": 7,
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "check_vram"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "additional_args",
+          "name": "additional_args",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "additional_args"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "seed",
+          "name": "seed",
+          "shape": 7,
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "network_trainer",
+          "name": "network_trainer",
+          "type": "NETWORKTRAINER",
+          "slot_index": 0,
+          "links": [
+            10
+          ]
+        },
+        {
+          "localized_name": "epochs_count",
+          "name": "epochs_count",
+          "type": "INT",
+          "slot_index": 1,
+          "links": null
+        },
+        {
+          "localized_name": "output_path",
+          "name": "output_path",
+          "type": "STRING",
+          "slot_index": 2,
+          "links": [
+            11
+          ]
+        },
+        {
+          "localized_name": "args",
+          "name": "args",
+          "type": "KOHYA_ARGS",
+          "slot_index": 3,
+          "links": null
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "Flux2InitTraining",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "my_flux2_lora",
+        "flux2_trainer_output",
+        "lora",
+        16,
+        16.0,
+        0.0001,
+        2000,
+        "disk",
+        "disk",
+        "bf16",
+        "bf16",
+        "fused_backward_pass",
+        "a photo of sks person | a painting of sks person in anime style",
+        "logit_normal",
+        "sigmoid",
+        true,
+        true,
+        "",
+        42
+      ],
+      "color": "#2d5a3f",
+      "bgcolor": "#1a3d2a"
+    },
+    {
+      "id": 4,
+      "type": "TrainDatasetAdd",
+      "pos": [
+        227.51851731051354,
+        -30.12157077258187
+      ],
+      "size": [
+        300,
+        364
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "dataset_config",
+          "name": "dataset_config",
+          "type": "JSON",
+          "link": 3
+        },
+        {
+          "localized_name": "regularization",
+          "name": "regularization",
+          "shape": 7,
+          "type": "JSON",
+          "link": null
+        },
+        {
+          "localized_name": "width",
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "height",
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "batch_size",
+          "name": "batch_size",
+          "type": "INT",
+          "widget": {
+            "name": "batch_size"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "dataset_path",
+          "name": "dataset_path",
+          "type": "STRING",
+          "widget": {
+            "name": "dataset_path"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "class_tokens",
+          "name": "class_tokens",
+          "type": "STRING",
+          "widget": {
+            "name": "class_tokens"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "enable_bucket",
+          "name": "enable_bucket",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "enable_bucket"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "bucket_no_upscale",
+          "name": "bucket_no_upscale",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "bucket_no_upscale"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "num_repeats",
+          "name": "num_repeats",
+          "type": "INT",
+          "widget": {
+            "name": "num_repeats"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "min_bucket_reso",
+          "name": "min_bucket_reso",
+          "type": "INT",
+          "widget": {
+            "name": "min_bucket_reso"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "max_bucket_reso",
+          "name": "max_bucket_reso",
+          "type": "INT",
+          "widget": {
+            "name": "max_bucket_reso"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "dataset",
+          "name": "dataset",
+          "type": "JSON",
+          "slot_index": 0,
+          "links": [
+            4
+          ]
+        }
+      ],
+      "properties": {
+        "aux_id": "nkVas1/ComfyUI-FluxTrainer-Pro",
+        "ver": "ece473c544e868f218734e96eb5e84013628cdc8",
+        "Node name for S&R": "TrainDatasetAdd",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        1024,
+        1024,
+        1,
+        "G:\\ComfyUI-StableDif-t27-p312-cu128-v2.1\\ComfyUI\\kohya_train\\mallorav1",
+        "childish penis",
+        true,
+        false,
+        10,
+        256,
+        1024,
+        [
+          false,
+          true
+        ],
+        [
+          false,
+          true
+        ]
+      ],
+      "color": "#5a3f3f",
+      "bgcolor": "#3d2a2a"
+    }
+  ],
+  "links": [
+    [
+      2,
+      2,
+      0,
+      10,
+      3,
+      "FLUX2_LOW_VRAM_CONFIG"
+    ],
+    [
+      3,
+      3,
+      0,
+      4,
+      0,
+      "JSON"
+    ],
+    [
+      4,
+      4,
+      0,
+      10,
+      1,
+      "JSON"
+    ],
+    [
+      5,
+      5,
+      0,
+      10,
+      2,
+      "ARGS"
+    ],
+    [
+      6,
+      6,
+      0,
+      7,
+      0,
+      "IMAGE"
+    ],
+    [
+      7,
+      6,
+      1,
+      null,
+      null,
+      "STRING"
+    ],
+    [
+      8,
+      8,
+      0,
+      null,
+      null,
+      "STRING"
+    ],
+    [
+      10,
+      10,
+      0,
+      12,
+      0,
+      "NETWORKTRAINER"
+    ],
+    [
+      11,
+      10,
+      2,
+      null,
+      null,
+      "STRING"
+    ],
+    [
+      12,
+      11,
+      0,
+      null,
+      null,
+      "STRING"
+    ],
+    [
+      13,
+      12,
+      0,
+      13,
+      0,
+      "NETWORKTRAINER"
+    ],
+    [
+      14,
+      13,
+      0,
+      14,
+      0,
+      "IMAGE"
+    ],
+    [
+      15,
+      15,
+      0,
+      null,
+      null,
+      "STRING"
+    ],
+    [
+      16,
+      16,
+      0,
+      17,
+      0,
+      "NETWORKTRAINER"
+    ],
+    [
+      17,
+      16,
+      1,
+      null,
+      null,
+      "STRING"
+    ],
+    [
+      18,
+      17,
+      0,
+      null,
+      null,
+      "STRING"
+    ],
+    [
+      19,
+      18,
+      0,
+      19,
+      0,
+      "IMAGE"
+    ],
+    [
+      48,
+      39,
+      0,
+      10,
+      0,
+      "TRAIN_FLUX2_MODELS"
+    ],
+    [
+      49,
+      12,
+      0,
+      15,
+      0,
+      "NETWORKTRAINER"
+    ],
+    [
+      50,
+      12,
+      0,
+      16,
+      0,
+      "NETWORKTRAINER"
+    ],
+    [
+      51,
+      16,
+      0,
+      18,
+      0,
+      "NETWORKTRAINER"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "📥 Model Selection",
+      "bounding": [
+        -380.1856016901641,
+        -120.88289385642216,
+        540.8406162830199,
+        743.2059271065941
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "📁 Dataset Configuration",
+      "bounding": [
+        186.56832413429404,
+        -114.35464478611509,
+        580.838761040997,
+        725.0019156615283
+      ],
+      "color": "#8A8",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "⚙️ Optimizer & Memory",
+      "bounding": [
+        785.2776137065239,
+        -108.05823060797047,
+        347.8705285312335,
+        716.2084182098862
+      ],
+      "color": "#8AA",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "🎯 Training Initialization",
+      "bounding": [
+        1150.2158560199182,
+        -104.69439700360863,
+        413.2388303683117,
+        702.9452700760203
+      ],
+      "color": "#A8A",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "🔄 Training Loop",
+      "bounding": [
+        1598.380584815844,
+        -98.94725733757213,
+        430.28350889506464,
+        1034.9390781124303
+      ],
+      "color": "#AA8",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 6,
+      "title": "💾 Save & End",
+      "bounding": [
+        2052.854040850429,
+        -136.65977391940353,
+        451.04246108626694,
+        296.37643765853954
+      ],
+      "color": "#88A",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 7,
+      "title": "📊 Monitoring",
+      "bounding": [
+        2067.5201218228895,
+        203.23888791304526,
+        811.3155733157032,
+        784.0890117851045
+      ],
+      "color": "#A88",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 8,
+      "title": "✅ Dataset Validation",
+      "bounding": [
+        40,
+        640,
+        820.951346950143,
+        383.6132232205657
+      ],
+      "color": "#8A8",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "manual_config": {
+      "preset_name": "Flux.2 Low VRAM Training",
+      "version": "2.0.0"
+    },
+    "workflowRendererVersion": "LG",
+    "ue_links": [],
+    "ds": {
+      "scale": 0.9395082378848629,
+      "offset": [
+        277.41671397317407,
+        227.01347060998788
+      ]
+    },
+    "links_added_by_ue": []
+  },
+  "version": 0.4
+}
