@@ -106,27 +106,31 @@ def analyze_checkpoint_state(ckpt_path: str) -> Tuple[bool, bool, Tuple[int, int
 
     # check number of double and single blocks
     if not is_diffusers:
-        max_double_block_index = max(
-            [int(key.split(".")[1]) for key in keys if key.startswith("double_blocks.") and key.endswith(".img_attn.proj.bias")]
-        )
-        max_single_block_index = max(
-            [int(key.split(".")[1]) for key in keys if key.startswith("single_blocks.") and key.endswith(".modulation.lin.bias")]
-        )
+        double_indices = [int(key.split(".")[1]) for key in keys if key.startswith("double_blocks.") and key.endswith(".img_attn.proj.bias")]
+        single_indices = [int(key.split(".")[1]) for key in keys if key.startswith("single_blocks.") and key.endswith(".modulation.lin.bias")]
     else:
-        max_double_block_index = max(
-            [
-                int(key.split(".")[1])
-                for key in keys
-                if key.startswith("transformer_blocks.") and key.endswith(".attn.add_k_proj.bias")
-            ]
+        double_indices = [
+            int(key.split(".")[1])
+            for key in keys
+            if key.startswith("transformer_blocks.") and key.endswith(".attn.add_k_proj.bias")
+        ]
+        single_indices = [
+            int(key.split(".")[1])
+            for key in keys
+            if key.startswith("single_transformer_blocks.") and key.endswith(".attn.to_k.bias")
+        ]
+
+    if not double_indices or not single_indices:
+        logger.warning(
+            f"Could not detect block structure from checkpoint keys. "
+            f"double_blocks found: {len(double_indices)}, single_blocks found: {len(single_indices)}. "
+            f"Falling back to default Flux Dev layout (19 double, 38 single)."
         )
-        max_single_block_index = max(
-            [
-                int(key.split(".")[1])
-                for key in keys
-                if key.startswith("single_transformer_blocks.") and key.endswith(".attn.to_k.bias")
-            ]
-        )
+        max_double_block_index = max(double_indices) if double_indices else 18  # default 19 blocks (0-18)
+        max_single_block_index = max(single_indices) if single_indices else 37  # default 38 blocks (0-37)
+    else:
+        max_double_block_index = max(double_indices)
+        max_single_block_index = max(single_indices)
 
     num_double_blocks = max_double_block_index + 1
     num_single_blocks = max_single_block_index + 1

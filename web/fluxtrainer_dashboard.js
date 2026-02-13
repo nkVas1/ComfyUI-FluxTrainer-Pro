@@ -89,7 +89,6 @@ const DASHBOARD_CSS = `
 
 /* === Overlay Backdrop === */
 .ftpro-overlay {
-    display: none;
     position: fixed;
     top: 0;
     left: 0;
@@ -97,18 +96,25 @@ const DASHBOARD_CSS = `
     height: 100%;
     z-index: 9990;
     background: rgba(0, 0, 0, 0.5);
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.15s ease, visibility 0s linear 0.15s;
+    contain: strict;
+    pointer-events: none;
 }
 .ftpro-overlay.open {
-    display: block;
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.15s ease, visibility 0s linear 0s;
+    pointer-events: auto;
 }
 
 /* === Main Dashboard Panel === */
 .ftpro-dashboard {
-    display: none;
     position: fixed;
     top: 50%;
     left: 50%;
-    transform: translate(-50%, -50%);
+    transform: translate(-50%, -50%) scale(0.97);
     z-index: 9991;
     width: 92vw;
     max-width: 1400px;
@@ -117,14 +123,25 @@ const DASHBOARD_CSS = `
     border-radius: 16px;
     border: 1px solid rgba(99, 179, 237, 0.2);
     background: linear-gradient(180deg, rgba(26, 32, 44, 0.98), rgba(17, 24, 39, 0.99));
-    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6), 0 0 60px rgba(99, 179, 237, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    display: flex;
     flex-direction: column;
     overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #e2e8f0;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
+    contain: content;
+    will-change: opacity, transform;
+    pointer-events: none;
 }
 .ftpro-dashboard.open {
-    display: flex;
+    visibility: visible;
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0s;
+    pointer-events: auto;
 }
 
 /* === Header === */
@@ -259,14 +276,9 @@ const DASHBOARD_CSS = `
 /* === Tab Panels === */
 .ftpro-panel {
     display: none;
-    animation: ftpro-fadeIn 0.3s ease;
 }
 .ftpro-panel.active {
     display: block;
-}
-@keyframes ftpro-fadeIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
 }
 
 /* === Cards === */
@@ -820,7 +832,6 @@ class FTProDashboard {
         this.charts = {};
         this._state = {};
         this._elements = {};
-        this._chartsInitialized = false;
         this._chartUpdating = false;
         this._chartUpdateTimer = null;
         
@@ -1077,40 +1088,20 @@ class FTProDashboard {
         </div>`;
     }
 
-    // === Charts Init (only once) ===
-    _initCharts() {
-        if (this._chartsInitialized) return;
-        
+    // === Lazy Charts Init — canvas context created only when first data arrives ===
+    _ensureChart(id, canvasSelector, options) {
+        if (this.charts[id]) return this.charts[id];
         try {
-            const lossCanvas = this._elements.dashboard.querySelector('#ftpro-chart-loss');
-            const lrCanvas = this._elements.dashboard.querySelector('#ftpro-chart-lr');
-            const vramCanvas = this._elements.dashboard.querySelector('#ftpro-chart-vram');
-
-            if (lossCanvas) {
-                this.charts.loss = new FTProChart(lossCanvas, {
-                    lineColor: '#63b3ed',
-                    secondaryColor: '#b794f4',
-                    fillColor: 'rgba(99, 179, 237, 0.06)',
-                });
-            }
-            if (lrCanvas) {
-                this.charts.lr = new FTProChart(lrCanvas, {
-                    lineColor: '#48bb78',
-                    fillColor: 'rgba(72, 187, 120, 0.06)',
-                    height: 180,
-                });
-            }
-            if (vramCanvas) {
-                this.charts.vram = new FTProChart(vramCanvas, {
-                    lineColor: '#ed8936',
-                    fillColor: 'rgba(237, 137, 54, 0.06)',
-                    height: 180,
-                });
-            }
-            
-            this._chartsInitialized = true;
+            const canvas = this._elements.dashboard?.querySelector(canvasSelector);
+            if (!canvas) return null;
+            // Check if canvas is actually visible (has layout dimensions)
+            const rect = canvas.parentElement?.getBoundingClientRect();
+            if (!rect || rect.width < 10) return null;
+            this.charts[id] = new FTProChart(canvas, options);
+            return this.charts[id];
         } catch (e) {
-            console.error('[FTPro] Chart init error:', e);
+            console.debug('[FTPro] Chart create error:', id, e.message);
+            return null;
         }
     }
 
@@ -1245,29 +1236,37 @@ class FTProDashboard {
         this._chartUpdating = true;
         
         try {
-            // Loss chart
-            if (this.charts.loss) {
-                const lossData = await this.api.getLoss();
-                if (lossData?.data?.length > 1) {
+            // Loss chart (lazy-created on first data)
+            const lossData = await this.api.getLoss();
+            if (lossData?.data?.length > 1) {
+                const chart = this._ensureChart('loss', '#ftpro-chart-loss', {
+                    lineColor: '#63b3ed', secondaryColor: '#b794f4',
+                    fillColor: 'rgba(99, 179, 237, 0.06)',
+                });
+                if (chart) {
                     const movingAvg = this._calcMovingAvg(lossData.data, 20);
-                    this.charts.loss.setData(lossData.data, movingAvg);
+                    chart.setData(lossData.data, movingAvg);
                 }
             }
 
             // LR chart
-            if (this.charts.lr) {
-                const lrData = await this.api.getLR();
-                if (lrData?.data?.length > 1) {
-                    this.charts.lr.setData(lrData.data);
-                }
+            const lrData = await this.api.getLR();
+            if (lrData?.data?.length > 1) {
+                const chart = this._ensureChart('lr', '#ftpro-chart-lr', {
+                    lineColor: '#48bb78', fillColor: 'rgba(72, 187, 120, 0.06)', height: 180,
+                });
+                if (chart) chart.setData(lrData.data);
             }
 
             // VRAM chart
-            if (this.charts.vram) {
-                const vramData = await this.api.getVRAM();
-                if (vramData?.data?.length > 1) {
+            const vramData = await this.api.getVRAM();
+            if (vramData?.data?.length > 1) {
+                const chart = this._ensureChart('vram', '#ftpro-chart-vram', {
+                    lineColor: '#ed8936', fillColor: 'rgba(237, 137, 54, 0.06)', height: 180,
+                });
+                if (chart) {
                     const mapped = vramData.data.map(d => ({ step: d.step, value: d.used }));
-                    this.charts.vram.setData(mapped);
+                    chart.setData(mapped);
                 }
             }
         } catch (e) {
@@ -1338,16 +1337,9 @@ class FTProDashboard {
             p.classList.toggle('active', p.id === `ftpro-panel-${tabId}`);
         });
 
-        // Refresh charts when switching to monitor
+        // Refresh charts when switching to monitor (lazy — no canvas init here)
         if (tabId === 'monitor') {
-            requestAnimationFrame(() => {
-                try {
-                    this._initCharts(); // Только создаёт если ещё не созданы
-                    this._scheduleChartUpdate();
-                } catch (e) {
-                    console.debug('[FTPro] Tab switch chart error:', e.message);
-                }
-            });
+            this._scheduleChartUpdate();
         }
         // Load config when switching to config tab
         if (tabId === 'config') this._loadConfigPanel();
@@ -1439,22 +1431,24 @@ class FTProDashboard {
 
     open() {
         if (this.isOpen) return;
+        console.time('[FTPro] open');
         this.isOpen = true;
         this._elements.overlay.classList.add('open');
         this._elements.dashboard.classList.add('open');
+        console.timeEnd('[FTPro] open');
         
-        // Give browser 300ms to paint the dashboard layout BEFORE any work
+        // Lightweight DOM update — no canvas, no fetch, just text
         this._openTimer = setTimeout(() => {
-            if (!this.isOpen) return; // might have been closed already
+            if (!this.isOpen) return;
             try {
-                this._initCharts();
                 if (this._state && Object.keys(this._state).length > 0) {
                     this._updateMonitorTab(this._state);
                 }
             } catch (e) {
-                console.debug('[FTPro] Open chart init error:', e.message);
+                console.debug('[FTPro] Open update error:', e.message);
             }
-            // Start polling AFTER charts are initialized
+            // Charts are lazy — created on first data inside _updateCharts()
+            // Start polling after browser is stable
             this.api.startPolling(3000);
         }, 300);
     }

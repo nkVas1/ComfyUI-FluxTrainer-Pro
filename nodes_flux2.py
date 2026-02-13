@@ -115,6 +115,7 @@ def _lazy_import_training():
             print_vram_estimate,
             auto_resume_training,
             get_training_progress,
+            find_latest_checkpoint,
         )
         
         # IPEX (Intel GPU) - строго опционально
@@ -144,6 +145,7 @@ def _lazy_import_training():
             "print_vram_estimate": print_vram_estimate,
             "auto_resume_training": auto_resume_training,
             "get_training_progress": get_training_progress,
+            "find_latest_checkpoint": find_latest_checkpoint,
             "clean_memory_on_device": clean_memory_on_device,
         })
         
@@ -361,9 +363,21 @@ class Flux2TrainModelPaths:
     FUNCTION = "loadmodel_paths"
     CATEGORY = "FluxTrainer/Flux2"
 
-    def _resolve(self, path_value: str, folder_key: str) -> str:
-        if not path_value:
-            raise ValueError(f"Path is empty for {folder_key}")
+    def _resolve(self, path_value: str, folder_key: str, required: bool = True) -> str:
+        if not path_value or not path_value.strip():
+            if required:
+                friendly_names = {
+                    "unet": "Transformer (UNet)",
+                    "vae": "VAE",
+                    "clip": "CLIP / T5",
+                }
+                name = friendly_names.get(folder_key, folder_key)
+                raise ValueError(
+                    f"Путь к модели '{name}' не указан. "
+                    f"Укажите путь к файлу или выберите модель через виджет."
+                )
+            return ""
+        path_value = path_value.strip()
         if os.path.isabs(path_value) and os.path.exists(path_value):
             return path_value
         # Try resolve relative to ComfyUI models folders
@@ -373,7 +387,10 @@ class Flux2TrainModelPaths:
         # Fallback: direct path check (relative)
         if os.path.exists(path_value):
             return os.path.abspath(path_value)
-        raise FileNotFoundError(f"File not found: {path_value}")
+        raise FileNotFoundError(
+            f"Файл не найден: '{path_value}'. "
+            f"Проверьте путь и наличие файла."
+        )
 
     def loadmodel_paths(self, transformer_path, vae_path, clip_l_path, t5_path, lora_path=""):
         # LAZY IMPORT
@@ -665,6 +682,7 @@ class Flux2InitTraining:
         print_vram_estimate = modules["print_vram_estimate"]
         auto_resume_fn = modules["auto_resume_training"]
         get_training_progress = modules["get_training_progress"]
+        find_latest_checkpoint = modules["find_latest_checkpoint"]
         
         mm.soft_empty_cache()
         
@@ -730,14 +748,27 @@ class Flux2InitTraining:
         # ===================================================================
         if check_vram:
             try:
+                # Определяем размер модели из model_type
+                model_type_str = flux2_models.get("model_type", "auto")
+                if model_type_str in ("flux2_dev", "flux_12b"):
+                    model_params_b = 12.0
+                else:
+                    model_params_b = 9.0  # Klein 9B или auto
+                
+                import torch
+                gpu_vram_gb = 8.0
+                if torch.cuda.is_available():
+                    gpu_vram_gb = torch.cuda.get_device_properties(0).total_mem / (1024 ** 3)
+                
                 vram_estimate = estimate_vram_usage(
-                    model_type="flux_9b",  # или flux_12b в зависимости от модели
+                    model_params_billions=model_params_b,
                     network_dim=network_dim,
-                    use_fp8=low_vram_config.use_fp8_base,
+                    batch_size=1,
+                    use_fp8_base=low_vram_config.use_fp8_base,
                     gradient_checkpointing=low_vram_config.gradient_checkpointing,
                     cache_text_encoder=cache_text_encoder_outputs != "disabled",
-                    optimizer_type=optimizer_settings.get("optimizer_type", "adamw8bit"),
-                    batch_size=1,
+                    blocks_to_swap=low_vram_config.blocks_to_swap,
+                    available_vram_gb=gpu_vram_gb,
                 )
                 print_vram_estimate(vram_estimate)
                 
@@ -761,9 +792,9 @@ class Flux2InitTraining:
         resume_checkpoint = None
         if auto_resume:
             try:
-                resume_result = auto_resume_fn(output_dir)
-                if resume_result:
-                    resume_checkpoint = resume_result["checkpoint_path"]
+                latest_ckpt = find_latest_checkpoint(output_dir)
+                if latest_ckpt:
+                    resume_checkpoint = latest_ckpt
                     progress = get_training_progress(output_dir)
                     logger.info("=" * 60)
                     logger.info("[AUTO-RESUME] Found checkpoint to continue!")
@@ -772,6 +803,8 @@ class Flux2InitTraining:
                         logger.info(f"   Прогресс: шаг {progress.get('last_step', '?')}, "
                                   f"эпоха {progress.get('last_epoch', '?')}")
                     logger.info("=" * 60)
+                else:
+                    logger.info("[AUTO-RESUME] No previous checkpoint found. Starting fresh.")
             except Exception as e:
                 logger.warning(f"Auto-resume check failed: {e}")
         
