@@ -97,6 +97,52 @@ def _lazy_import_training():
         if not os.path.exists(os.path.join(python_home, 'include', 'Python.h')):
             os.environ.setdefault('TRITON_DISABLE_LINE_INFO', '1')
             logger.info("[Flux2] Windows Embedded Python detected - Triton JIT disabled")
+            
+            # =======================================================================
+            # TRITON MOCK - Предотвращает краш bitsandbytes при импорте triton
+            # bitsandbytes пытается импортировать triton.autotune, который падает
+            # на Windows embedded Python. Создаём mock-модули чтобы это предотвратить.
+            # =======================================================================
+            if 'triton' not in sys.modules:
+                from types import ModuleType
+                from unittest.mock import MagicMock
+                
+                # Создаём mock-модуль triton
+                triton_mock = ModuleType('triton')
+                triton_mock.__version__ = '0.0.0'
+                triton_mock.__path__ = []
+                
+                # autotune - декоратор, который возвращает функцию как есть
+                def autotune(*args, **kwargs):
+                    def decorator(func):
+                        return func
+                    return decorator
+                
+                # jit - аналогично, просто возвращает функцию
+                def jit(*args, **kwargs):
+                    def decorator(func):
+                        return func
+                    if args and callable(args[0]):
+                        return args[0]
+                    return decorator
+                
+                # Config - просто заглушка
+                class Config:
+                    pass
+                
+                triton_mock.autotune = autotune
+                triton_mock.jit = jit
+                triton_mock.Config = Config
+                triton_mock.cdiv = lambda x, y: (x + y - 1) // y
+                triton_mock.language = MagicMock()
+                
+                # Регистрируем mock-модули
+                sys.modules['triton'] = triton_mock
+                sys.modules['triton.language'] = triton_mock.language
+                sys.modules['triton.runtime'] = MagicMock()
+                sys.modules['triton.compiler'] = MagicMock()
+                
+                logger.info("[Flux2] Triton mock installed - bitsandbytes will work without triton optimization")
     
     try:
         import toml
