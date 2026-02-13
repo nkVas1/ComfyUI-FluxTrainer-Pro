@@ -14,10 +14,10 @@ import os
 import traceback
 import logging
 
-__version__ = "2.4.1"
+__version__ = "2.4.2"
 
 # =============================================================================
-# WINDOWS TRITON GLOBAL PATCH - v2.4.1
+# WINDOWS TRITON GLOBAL PATCH - v2.4.2
 # =============================================================================
 # ВАЖНО: Этот патч ДОЛЖЕН быть в начале файла, ПЕРЕД любыми другими импортами!
 # 
@@ -56,6 +56,9 @@ def _patch_triton_for_windows():
         """No-op autotune decorator - возвращает функцию без изменений"""
         def decorator(func):
             return func
+        # Поддержка @triton.autotune без скобок (маловероятно, но на всякий случай)
+        if args and callable(args[0]):
+            return args[0]
         return decorator
     
     def _noop_jit(*args, **kwargs):
@@ -67,9 +70,30 @@ def _patch_triton_for_windows():
             return args[0]
         return decorator
     
-    class _NoopConfig:
-        """Заглушка для triton.Config"""
-        pass
+    class _TritonConfig:
+        """
+        Полноценная заглушка для triton.Config.
+        Принимает любые аргументы как в оригинальном triton.Config.
+        
+        Использование в bitsandbytes:
+            triton.Config({}, num_stages=1, num_warps=8)
+        """
+        def __init__(self, kwargs=None, num_stages=1, num_warps=4, num_ctas=1, 
+                     maxnreg=None, pre_hook=None, post_hook=None):
+            self.kwargs = kwargs or {}
+            self.num_stages = num_stages
+            self.num_warps = num_warps
+            self.num_ctas = num_ctas
+            self.maxnreg = maxnreg
+            self.pre_hook = pre_hook
+            self.post_hook = post_hook
+        
+        def __repr__(self):
+            return f"TritonConfig(num_stages={self.num_stages}, num_warps={self.num_warps})"
+        
+        def all_kwargs(self):
+            """Возвращает все kwargs для совместимости"""
+            return self.kwargs
     
     # --- Общая функция для создания mock-субмодулей ---
     def _create_mock_submodule(name):
@@ -91,7 +115,7 @@ def _patch_triton_for_windows():
         # Это реальный triton - патчим его декораторы
         triton_module.autotune = _noop_autotune
         triton_module.jit = _noop_jit
-        triton_module.Config = _NoopConfig
+        triton_module.Config = _TritonConfig
         triton_module.cdiv = lambda x, y: (x + y - 1) // y
         triton_module._patched_by_fluxtrainer = True
         
@@ -125,7 +149,7 @@ def _patch_triton_for_windows():
     
     triton_mock.autotune = _noop_autotune
     triton_mock.jit = _noop_jit
-    triton_mock.Config = _NoopConfig
+    triton_mock.Config = _TritonConfig
     triton_mock.cdiv = lambda x, y: (x + y - 1) // y
     triton_mock.language = MagicMock()
     
