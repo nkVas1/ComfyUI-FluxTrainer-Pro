@@ -14,7 +14,150 @@ import os
 import traceback
 import logging
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
+
+# =============================================================================
+# WINDOWS TRITON GLOBAL PATCH - v2.4.1
+# =============================================================================
+# ВАЖНО: Этот патч ДОЛЖЕН быть в начале файла, ПЕРЕД любыми другими импортами!
+# 
+# Проблема: На Windows Embedded Python (ComfyUI portable) triton пытается 
+# компилировать JIT-ядра через cl.exe, но Python.h отсутствует.
+# Другие ноды ComfyUI (KSampler, hy3, и др.) могут загрузить triton ПЕРЕД
+# нашими нодами, поэтому простой mock недостаточен - нужно патчить 
+# УЖЕ ЗАГРУЖЕННЫЙ triton module.
+#
+# Решение: Агрессивный патч, который работает в обоих случаях:
+# 1. Если triton НЕ загружен - создаём полный mock-модуль
+# 2. Если triton УЖЕ загружен - патчим его декораторы на месте
+# =============================================================================
+
+def _patch_triton_for_windows():
+    """
+    Универсальный патч для triton на Windows.
+    Предотвращает краш при JIT-компиляции triton ядер.
+    """
+    # Только Windows и только если нет Python.h
+    if sys.platform != 'win32':
+        return False
+    
+    python_home = os.path.dirname(sys.executable)
+    python_h_path = os.path.join(python_home, 'include', 'Python.h')
+    
+    # Если Python.h есть - полноценная установка, патч не нужен
+    if os.path.exists(python_h_path):
+        return False
+    
+    from types import ModuleType
+    from unittest.mock import MagicMock
+    
+    # --- No-op декораторы для замены triton.autotune/jit ---
+    def _noop_autotune(*args, **kwargs):
+        """No-op autotune decorator - возвращает функцию без изменений"""
+        def decorator(func):
+            return func
+        return decorator
+    
+    def _noop_jit(*args, **kwargs):
+        """No-op jit decorator - возвращает функцию без изменений"""
+        def decorator(func):
+            return func
+        # Поддержка @triton.jit без скобок
+        if args and callable(args[0]):
+            return args[0]
+        return decorator
+    
+    class _NoopConfig:
+        """Заглушка для triton.Config"""
+        pass
+    
+    # --- Общая функция для создания mock-субмодулей ---
+    def _create_mock_submodule(name):
+        """Создаёт MagicMock и регистрирует в sys.modules"""
+        mock = MagicMock()
+        mock.__name__ = name
+        mock.__package__ = name.rsplit('.', 1)[0] if '.' in name else name
+        sys.modules[name] = mock
+        return mock
+    
+    # --- CASE 1: Triton уже загружен - патчим существующий модуль ---
+    triton_module = sys.modules.get('triton')
+    
+    if triton_module is not None:
+        # Проверяем, не наш ли это уже mock
+        if getattr(triton_module, '_patched_by_fluxtrainer', False):
+            return True  # Уже патчили
+        
+        # Это реальный triton - патчим его декораторы
+        triton_module.autotune = _noop_autotune
+        triton_module.jit = _noop_jit
+        triton_module.Config = _NoopConfig
+        triton_module.cdiv = lambda x, y: (x + y - 1) // y
+        triton_module._patched_by_fluxtrainer = True
+        
+        # Патчим/создаём проблемные субмодули
+        _problematic_submodules = [
+            'triton.common',
+            'triton.common.libdevice', 
+            'triton.compiler',
+            'triton.compiler.compiler',
+            'triton.runtime',
+            'triton.runtime.driver',
+            'triton.backends',
+            'triton.backends.nvidia',
+            'triton.backends.nvidia.compiler',
+            'triton.language',
+        ]
+        
+        for submod_name in _problematic_submodules:
+            if submod_name not in sys.modules:
+                _create_mock_submodule(submod_name)
+        
+        print(f"[ComfyUI-FluxTrainer-Pro] Triton decorators patched (existing module)")
+        return True
+    
+    # --- CASE 2: Triton не загружен - создаём полный mock ---
+    triton_mock = ModuleType('triton')
+    triton_mock.__version__ = '0.0.0-fluxtrainer-mock'
+    triton_mock.__path__ = []
+    triton_mock.__package__ = 'triton'
+    triton_mock._patched_by_fluxtrainer = True
+    
+    triton_mock.autotune = _noop_autotune
+    triton_mock.jit = _noop_jit
+    triton_mock.Config = _NoopConfig
+    triton_mock.cdiv = lambda x, y: (x + y - 1) // y
+    triton_mock.language = MagicMock()
+    
+    # Регистрируем mock-модули
+    sys.modules['triton'] = triton_mock
+    
+    # Создаём все нужные субмодули как MagicMock
+    _submodules = [
+        'triton.common',
+        'triton.common.libdevice',
+        'triton.compiler', 
+        'triton.compiler.compiler',
+        'triton.runtime',
+        'triton.runtime.driver',
+        'triton.runtime.jit',
+        'triton.backends',
+        'triton.backends.nvidia',
+        'triton.backends.nvidia.compiler',
+        'triton.language',
+        'triton.language.math',
+        'triton.language.core',
+    ]
+    
+    for submod_name in _submodules:
+        _create_mock_submodule(submod_name)
+    
+    print(f"[ComfyUI-FluxTrainer-Pro] Triton mock installed (new module)")
+    return True
+
+
+# Применяем патч СРАЗУ при загрузке модуля (до любых других импортов)
+_triton_patched = _patch_triton_for_windows()
 
 # Настройка логгера
 logger = logging.getLogger("ComfyUI-FluxTrainer-Pro")
