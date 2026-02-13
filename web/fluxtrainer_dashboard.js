@@ -32,7 +32,7 @@ const DASHBOARD_CSS = `
 /* === Floating Toggle Button === */
 .ftpro-toggle-btn {
     position: fixed;
-    bottom: 20px;
+    bottom: 80px;
     right: 20px;
     z-index: 9999;
     width: 56px;
@@ -97,14 +97,16 @@ const DASHBOARD_CSS = `
     height: 100%;
     z-index: 10000;
     background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
     opacity: 0;
     visibility: hidden;
-    transition: all 0.3s ease;
+    pointer-events: none;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 .ftpro-overlay.open {
     opacity: 1;
     visibility: visible;
+    pointer-events: auto;
+    backdrop-filter: blur(4px);
 }
 
 /* === Main Dashboard Panel === */
@@ -121,20 +123,22 @@ const DASHBOARD_CSS = `
     border-radius: 16px;
     border: 1px solid rgba(99, 179, 237, 0.2);
     background: linear-gradient(180deg, rgba(26, 32, 44, 0.97), rgba(17, 24, 39, 0.98));
-    backdrop-filter: blur(20px);
     box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6), 0 0 60px rgba(99, 179, 237, 0.08);
     display: flex;
     flex-direction: column;
     overflow: hidden;
     opacity: 0;
     visibility: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: #e2e8f0;
 }
 .ftpro-dashboard.open {
     opacity: 1;
     visibility: visible;
+    pointer-events: auto;
+    backdrop-filter: blur(20px);
     transform: translate(-50%, -50%) scale(1);
 }
 
@@ -499,6 +503,7 @@ class FTProAPI {
         this._pollInterval = null;
         this._listeners = {};
         this._lastStep = -1;
+        this._wsSetup = false;
     }
 
     async fetch(endpoint, options = {}) {
@@ -551,8 +556,12 @@ class FTProAPI {
         this.stopPolling();
         this._poll();
         this._pollInterval = setInterval(() => this._poll(), intervalMs);
-        
-        // WebSocket events
+        this._setupWebSocket();
+    }
+
+    _setupWebSocket() {
+        if (this._wsSetup) return;
+        this._wsSetup = true;
         try {
             api.addEventListener("fluxtrainer.progress", (d) => this._emit('progress', d.detail));
             api.addEventListener("fluxtrainer.status", (d) => this._emit('status_change', d.detail));
@@ -786,7 +795,8 @@ class FTProDashboard {
         this._createToggleButton();
         this._createDashboard();
         this._setupEventHandlers();
-        this.api.startPolling(2500);
+        // WebSocket only (for badge updates), no polling until dashboard opened
+        this.api._setupWebSocket();
     }
 
     // === Create Toggle Button ===
@@ -1333,6 +1343,9 @@ class FTProDashboard {
         this._elements.overlay.classList.add('open');
         this._elements.dashboard.classList.add('open');
         
+        // Start polling when dashboard is opened
+        this.api.startPolling(2500);
+        
         // Reinit charts
         requestAnimationFrame(() => {
             this._initCharts();
@@ -1344,6 +1357,9 @@ class FTProDashboard {
         this.isOpen = false;
         this._elements.overlay.classList.remove('open');
         this._elements.dashboard.classList.remove('open');
+        
+        // Stop polling when dashboard is closed (save resources)
+        this.api.stopPolling();
     }
 }
 
