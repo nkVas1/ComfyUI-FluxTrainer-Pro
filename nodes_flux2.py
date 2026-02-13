@@ -1238,6 +1238,16 @@ class Flux2TrainEnd:
         logger.info(f"  Total steps: {trainer.global_step}")
         logger.info("=" * 60)
         
+        # === FluxTrainer Pro Dashboard: mark training finished ===
+        try:
+            from .training_state import TrainingState
+            TrainingState.instance().finish_training(
+                success=True,
+                message=f"LoRA saved: {final_path}, steps: {trainer.global_step}"
+            )
+        except Exception:
+            pass
+
         return (final_path,)
 
 

@@ -396,6 +396,14 @@ else:
 # --- Web extensions directory ---
 WEB_DIRECTORY = "./web"
 
+# --- Dashboard API ---
+try:
+    from .training_server import setup_api_routes
+    setup_api_routes()
+    print("[ComfyUI-FluxTrainer-Pro] [OK] Dashboard API initialized")
+except Exception as _api_err:
+    print(f"[ComfyUI-FluxTrainer-Pro] [WARN] Dashboard API not available: {_api_err}")
+
 # Summary
 print(f"[ComfyUI-FluxTrainer-Pro] Total nodes loaded: {len(NODE_CLASS_MAPPINGS)}")
 

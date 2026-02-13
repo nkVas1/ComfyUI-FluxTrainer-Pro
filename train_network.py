@@ -1152,6 +1152,22 @@ class NetworkTrainer:
         
         progress_bar = tqdm(range(args.max_train_steps - initial_step), smoothing=0, disable=False, desc="steps")
         
+        # === FluxTrainer Pro Dashboard: mark training started ===
+        try:
+            from .training_state import TrainingState
+            _config_snapshot = {
+                k: str(v) for k, v in vars(args).items()
+                if not k.startswith('_') and not callable(v)
+            }
+            TrainingState.instance().start_training(
+                config=_config_snapshot,
+                max_steps=args.max_train_steps,
+                max_epochs=num_train_epochs,
+                model_name=getattr(args, 'output_name', ''),
+            )
+        except Exception:
+            pass
+
         def training_loop(break_at_steps, epoch):
             steps_done = 0
             
@@ -1302,6 +1318,21 @@ class NetworkTrainer:
                 avr_loss: float = self.loss_recorder.moving_average
                 logs = {"avr_loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
                 progress_bar.set_postfix(**logs)
+
+                # === FluxTrainer Pro Dashboard: push step metrics ===
+                try:
+                    from .training_state import TrainingState
+                    _lr_val = lr_scheduler.get_last_lr()[0] if lr_scheduler else 0.0
+                    _grad = mean_norm if mean_norm is not None else 0.0
+                    TrainingState.instance().update_step(
+                        step=self.global_step,
+                        loss=current_loss,
+                        lr=_lr_val,
+                        grad_norm=float(_grad),
+                        epoch=epoch,
+                    )
+                except Exception:
+                    pass  # dashboard не должен влиять на тренировку
 
                 if args.scale_weight_norms:
                     progress_bar.set_postfix(**{**max_mean_logs, **logs})

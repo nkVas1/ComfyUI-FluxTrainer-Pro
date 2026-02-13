@@ -1342,6 +1342,16 @@ class FluxTrainEnd:
             # metadata
             metadata = json.dumps(network_trainer.metadata, indent=2)
 
+            # === FluxTrainer Pro Dashboard: mark training finished ===
+            try:
+                from .training_state import TrainingState
+                TrainingState.instance().finish_training(
+                    success=True,
+                    message=f"LoRA saved: {final_lora_path}, steps: {network_trainer.global_step}"
+                )
+            except Exception:
+                pass
+
             training_loop = None
             network_trainer = None
             mm.soft_empty_cache()
