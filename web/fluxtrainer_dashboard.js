@@ -485,17 +485,20 @@ function injectCSS() {
 
 class FTProAPI {
     constructor() {
-        this._pollInterval = null;
         this._listeners = {};
         this._lastStep = -1;
         this._wsSetup = false;
-        this._abortController = null;
+        this._shouldPoll = false;
+        this._pollTimeout = null;
+        this._pollIntervalMs = 3000;
+        this._activeControllers = new Set();
     }
 
     async _request(endpoint, options = {}) {
+        const controller = new AbortController();
+        this._activeControllers.add(controller);
         try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
             const resp = await window.fetch(`/api/fluxtrainer/${endpoint}`, {
                 ...options,
                 signal: controller.signal,
@@ -505,10 +508,20 @@ class FTProAPI {
             return await resp.json();
         } catch (e) {
             if (e.name !== 'AbortError') {
-                console.debug(`[FTPro API] ${endpoint} failed:`, e.message);
+                console.debug(`[FTPro API] ${endpoint}:`, e.message);
             }
             return null;
+        } finally {
+            this._activeControllers.delete(controller);
         }
+    }
+
+    /** Cancel all in-flight requests */
+    abortAll() {
+        for (const c of this._activeControllers) {
+            try { c.abort(); } catch (_) {}
+        }
+        this._activeControllers.clear();
     }
 
     async getStatus() { return this._request('status'); }
@@ -545,13 +558,43 @@ class FTProAPI {
         });
     }
 
-    // Polling + WebSocket
-    startPolling(intervalMs = 2500) {
+    // === Sequential Polling (never concurrent) ===
+    startPolling(intervalMs = 3000) {
         this.stopPolling();
-        // Первый poll с небольшой задержкой, чтобы DOM успел отрисоваться
-        setTimeout(() => this._poll(), 100);
-        this._pollInterval = setInterval(() => this._poll(), intervalMs);
+        this._pollIntervalMs = intervalMs;
+        this._shouldPoll = true;
         this._setupWebSocket();
+        // First poll after DOM settles
+        this._pollTimeout = setTimeout(() => this._pollLoop(), 500);
+    }
+
+    stopPolling() {
+        this._shouldPoll = false;
+        if (this._pollTimeout) {
+            clearTimeout(this._pollTimeout);
+            this._pollTimeout = null;
+        }
+    }
+
+    /** Sequential poll loop — next poll starts ONLY after previous completes */
+    async _pollLoop() {
+        if (!this._shouldPoll) return;
+        try {
+            const status = await this.getStatus();
+            if (status && this._shouldPoll) {
+                this._emit('status_update', status);
+                if (status.step !== this._lastStep) {
+                    this._lastStep = status.step;
+                    this._emit('step_update', status);
+                }
+            }
+        } catch (e) {
+            console.debug('[FTPro] Poll error:', e.message);
+        }
+        // Schedule next poll AFTER this one finishes (never concurrent)
+        if (this._shouldPoll) {
+            this._pollTimeout = setTimeout(() => this._pollLoop(), this._pollIntervalMs);
+        }
     }
 
     _setupWebSocket() {
@@ -566,33 +609,7 @@ class FTProAPI {
                 api.addEventListener("fluxtrainer.finished", (d) => this._emit('finished', d.detail));
             }
         } catch (e) {
-            console.debug('[FTPro] WebSocket events not available, using polling only');
-        }
-    }
-
-    stopPolling() {
-        if (this._pollInterval) {
-            clearInterval(this._pollInterval);
-            this._pollInterval = null;
-        }
-    }
-
-    async _poll() {
-        if (this._polling) return; // Защита от concurrent polls
-        this._polling = true;
-        try {
-            const status = await this.getStatus();
-            if (status) {
-                this._emit('status_update', status);
-                if (status.step !== this._lastStep) {
-                    this._lastStep = status.step;
-                    this._emit('step_update', status);
-                }
-            }
-        } catch (e) {
-            console.debug('[FTPro] Poll error:', e.message);
-        } finally {
-            this._polling = false;
+            console.debug('[FTPro] WebSocket setup skipped');
         }
     }
 }
@@ -1099,10 +1116,17 @@ class FTProDashboard {
 
     // === Event Handlers ===
     _setupEventHandlers() {
-        // Status update (polling)
+        // Status update (polling) — lightweight UI update only
         this.api.on('status_update', (data) => {
             this._state = data;
             this._updateUI(data);
+        });
+
+        // Step changed — update charts (only when data actually changes)
+        this.api.on('step_update', () => {
+            if (this.isOpen && this.currentTab === 'monitor') {
+                this._scheduleChartUpdate();
+            }
         });
 
         // Real-time progress (WebSocket)
@@ -1203,9 +1227,7 @@ class FTProDashboard {
         } catch (e) {
             console.debug('[FTPro] Monitor tab update error:', e.message);
         }
-
-        // Debounced chart update — не чаще раза в 3 секунды
-        this._scheduleChartUpdate();
+        // Charts update is triggered by step_update event, NOT here
     }
 
     _scheduleChartUpdate() {
@@ -1421,20 +1443,20 @@ class FTProDashboard {
         this._elements.overlay.classList.add('open');
         this._elements.dashboard.classList.add('open');
         
-        // Start polling when dashboard is opened (с задержкой)
-        this.api.startPolling(2500);
-        
-        // Init charts once, then update
-        requestAnimationFrame(() => {
+        // Give browser 300ms to paint the dashboard layout BEFORE any work
+        this._openTimer = setTimeout(() => {
+            if (!this.isOpen) return; // might have been closed already
             try {
                 this._initCharts();
                 if (this._state && Object.keys(this._state).length > 0) {
                     this._updateMonitorTab(this._state);
                 }
             } catch (e) {
-                console.error('[FTPro] Open error:', e);
+                console.debug('[FTPro] Open chart init error:', e.message);
             }
-        });
+            // Start polling AFTER charts are initialized
+            this.api.startPolling(3000);
+        }, 300);
     }
 
     close() {
@@ -1443,8 +1465,15 @@ class FTProDashboard {
         this._elements.overlay.classList.remove('open');
         this._elements.dashboard.classList.remove('open');
         
-        // Stop all timers
+        // Cancel opening timer if still pending
+        if (this._openTimer) {
+            clearTimeout(this._openTimer);
+            this._openTimer = null;
+        }
+        // Stop polling and abort all in-flight requests
         this.api.stopPolling();
+        this.api.abortAll();
+        // Clear chart timers
         if (this._chartUpdateTimer) {
             clearTimeout(this._chartUpdateTimer);
             this._chartUpdateTimer = null;
