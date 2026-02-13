@@ -14,10 +14,10 @@ import os
 import traceback
 import logging
 
-__version__ = "2.4.2"
+__version__ = "2.5.0"
 
 # =============================================================================
-# WINDOWS TRITON GLOBAL PATCH - v2.4.2
+# WINDOWS TRITON GLOBAL PATCH - v2.5.0
 # =============================================================================
 # ВАЖНО: Этот патч ДОЛЖЕН быть в начале файла, ПЕРЕД любыми другими импортами!
 # 
@@ -51,23 +51,60 @@ def _patch_triton_for_windows():
     from types import ModuleType
     from unittest.mock import MagicMock
     
-    # --- No-op декораторы для замены triton.autotune/jit ---
+    # --- No-op декораторы для замены triton.autotune/jit/heuristics ---
+    
+    def _add_jit_attrs(func):
+        """
+        Добавляет атрибуты triton.JITFunction к обычной Python-функции.
+        Критично: bitsandbytes и другие обращаются к fn.arg_names после @triton.jit.
+        Без этого @triton.heuristics и @triton.autotune крашатся.
+        """
+        if not hasattr(func, 'arg_names'):
+            try:
+                code = func.__code__
+                func.arg_names = list(code.co_varnames[:code.co_argcount])
+            except (AttributeError, TypeError):
+                func.arg_names = []
+        if not hasattr(func, 'params'):
+            func.params = [{'name': n, 'is_constexpr': False} for n in getattr(func, 'arg_names', [])]
+        if not hasattr(func, 'src'):
+            func.src = ''
+        if not hasattr(func, 'kernel'):
+            func.kernel = None
+        if not hasattr(func, 'best_config'):
+            func.best_config = None
+        return func
+    
     def _noop_autotune(*args, **kwargs):
         """No-op autotune decorator - возвращает функцию без изменений"""
         def decorator(func):
-            return func
+            return _add_jit_attrs(func)
         # Поддержка @triton.autotune без скобок (маловероятно, но на всякий случай)
         if args and callable(args[0]):
-            return args[0]
+            return _add_jit_attrs(args[0])
         return decorator
     
     def _noop_jit(*args, **kwargs):
-        """No-op jit decorator - возвращает функцию без изменений"""
+        """
+        No-op jit decorator - возвращает функцию с добавленными JIT-атрибутами.
+        Критично: добавляет arg_names, params и др. атрибуты, которые ожидаются
+        другими triton декораторами (heuristics, autotune).
+        """
         def decorator(func):
-            return func
+            return _add_jit_attrs(func)
         # Поддержка @triton.jit без скобок
         if args and callable(args[0]):
-            return args[0]
+            return _add_jit_attrs(args[0])
+        return decorator
+    
+    def _noop_heuristics(values=None, *args, **kwargs):
+        """
+        No-op heuristics decorator.
+        В реальном triton: heuristics({key: fn}) создаёт Heuristics обёртку,
+        которая обращается к fn.arg_names. Наш no-op просто пропускает.
+        """
+        def decorator(func):
+            return _add_jit_attrs(func)
         return decorator
     
     class _TritonConfig:
@@ -115,9 +152,31 @@ def _patch_triton_for_windows():
         # Это реальный triton - патчим его декораторы
         triton_module.autotune = _noop_autotune
         triton_module.jit = _noop_jit
+        triton_module.heuristics = _noop_heuristics
         triton_module.Config = _TritonConfig
         triton_module.cdiv = lambda x, y: (x + y - 1) // y
+        triton_module.next_power_of_2 = lambda x: 1 << (x - 1).bit_length() if x > 0 else 1
         triton_module._patched_by_fluxtrainer = True
+        
+        # Патчим уже загруженные субмодули с реальным кодом
+        # Критично: triton.runtime.autotuner содержит РЕАЛЬНЫЙ код heuristics/autotune,
+        # который крашится при обращении к fn.arg_names на обычных функциях.
+        _autotuner = sys.modules.get('triton.runtime.autotuner')
+        if _autotuner is not None:
+            _autotuner.autotune = _noop_autotune
+            _autotuner.heuristics = _noop_heuristics
+            # Заменяем Heuristics/Autotuner классы на безопасные обёртки
+            class _SafeHeuristics:
+                def __init__(self, fn, *a, **kw):
+                    self.fn = fn
+                    self.arg_names = getattr(fn, 'arg_names', [])
+                def __call__(self, *a, **kw):
+                    return self.fn(*a, **kw) if callable(self.fn) else None
+            _autotuner.Heuristics = _SafeHeuristics
+        
+        _runtime_jit = sys.modules.get('triton.runtime.jit')
+        if _runtime_jit is not None:
+            _runtime_jit.jit = _noop_jit
         
         # Патчим/создаём проблемные субмодули
         _problematic_submodules = [
@@ -149,8 +208,10 @@ def _patch_triton_for_windows():
     
     triton_mock.autotune = _noop_autotune
     triton_mock.jit = _noop_jit
+    triton_mock.heuristics = _noop_heuristics
     triton_mock.Config = _TritonConfig
     triton_mock.cdiv = lambda x, y: (x + y - 1) // y
+    triton_mock.next_power_of_2 = lambda x: 1 << (x - 1).bit_length() if x > 0 else 1
     triton_mock.language = MagicMock()
     
     # Регистрируем mock-модули
@@ -165,6 +226,7 @@ def _patch_triton_for_windows():
         'triton.runtime',
         'triton.runtime.driver',
         'triton.runtime.jit',
+        'triton.runtime.autotuner',
         'triton.backends',
         'triton.backends.nvidia',
         'triton.backends.nvidia.compiler',
