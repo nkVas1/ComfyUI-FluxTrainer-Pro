@@ -68,7 +68,9 @@ class FluxTextEncodingStrategy(TextEncodingStrategy):
         if clip_l is not None and l_tokens is not None:
             l_pooled = clip_l(l_tokens.to(clip_l.device))["pooler_output"]
         else:
-            l_pooled = None
+            pooled_device = t5xxl.device if t5xxl is not None else l_tokens.device
+            pooled_dtype = get_t5xxl_actual_dtype(t5xxl) if t5xxl is not None else torch.float32
+            l_pooled = torch.zeros((l_tokens.shape[0], 768), device=pooled_device, dtype=pooled_dtype)
 
         # t5xxl is None when using CLIP only
         if t5xxl is not None and t5_tokens is not None:
@@ -160,6 +162,9 @@ class FluxTextEncoderOutputsCachingStrategy(TextEncoderOutputsCachingStrategy):
         with torch.no_grad():
             # attn_mask is applied in text_encoding_strategy.encode_tokens if apply_t5_attn_mask is True
             l_pooled, t5_out, txt_ids, _ = flux_text_encoding_strategy.encode_tokens(tokenize_strategy, models, tokens_and_masks)
+
+        if l_pooled is None:
+            l_pooled = torch.zeros((t5_out.shape[0], 768), device=t5_out.device, dtype=t5_out.dtype)
 
         if l_pooled.dtype == torch.bfloat16:
             l_pooled = l_pooled.float()
