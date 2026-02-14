@@ -238,9 +238,21 @@ Optimizer fusing: fused_backward_pass
 
 #### Error(s) in loading state_dict for Flux (size mismatch)
 1. Используйте актуальную версию плагина (в ней включён авто-инференс архитектуры из checkpoint)
+2. В актуальной версии loader автоматически определяет `mlp_ratio` и `mlp_gated` по checkpoint (Klein/Dev), поэтому конфликт форм MLP должен исчезнуть
+3. Если в логах всё ещё старые строки без `mlp_gated=...`, значит в `custom_nodes` лежит старая копия проекта — замените папку и перезапустите ComfyUI
 2. Для Flux.2 Klein 9B укажите `text_encoder=qwen_3_8b.safetensors`
 3. Убедитесь, что выбран именно Flux.2 checkpoint, а не Flux.1
 4. Перезапустите ComfyUI после обновления `custom_nodes/ComfyUI-FluxTrainer`
+
+#### В дашборде не видно конфиг/прогресс
+1. При успешном запуске статус проходит стадии `preparing -> training`
+2. Если инициализация падает до старта train loop, прогресс шагов не появится — это нормально
+3. В актуальной версии конфиг показывается уже на стадии `preparing`, а при ошибке инициализации статус меняется на `error` с текстом причины
+
+#### Много красных ошибок при старте ComfyUI, но FluxTrainer загружен
+1. Ошибки сторонних `custom_nodes` (NumPy/Numba/InsightFace/LTXVideo и т.п.) обычно не блокируют FluxTrainer напрямую
+2. Ориентируйтесь на строки `[ComfyUI-FluxTrainer-Pro] [OK] Loaded Flux.2 nodes` и на traceback внутри `ComfyUI-FluxTrainer` при запуске training
+3. Для чистой диагностики training рекомендуется временно отключить заведомо конфликтные сторонние ноды
 
 #### Медленное обучение
 1. Уменьшите `blocks_to_swap` если возможно

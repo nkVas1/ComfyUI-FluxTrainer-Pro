@@ -172,6 +172,20 @@ class TrainingState:
             "max_epochs": max_epochs,
             "model": model_name,
         })
+
+    def start_preparing(self, config: Dict[str, Any], model_name: str = ""):
+        """Состояние подготовки: конфиг уже виден в dashboard, обучение ещё не началось."""
+        with self._data_lock:
+            self.status = TrainingStatus.PREPARING
+            self.config = config
+            self.model_name = model_name
+            self.error_message = ""
+            self.last_update_time = time.time()
+
+        self._emit_ws("fluxtrainer.status", {
+            "status": TrainingStatus.PREPARING.value,
+            "message": "Подготовка тренировки",
+        })
     
     def update_step(self, step: int, loss: float, lr: float = 0.0, 
                     grad_norm: float = 0.0, epoch: int = 0):

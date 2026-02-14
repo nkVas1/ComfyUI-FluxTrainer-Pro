@@ -120,7 +120,8 @@ python install.py
 Импортируйте один из готовых примеров из папки `example_workflows/`:
 
 - `flux2_lora_low_vram_example.json` - для 8-12 GB VRAM
-- `flux2_complete_training.json` - полный пример
+- `flux2_complete_training_new.json` - основной production workflow (рекомендуется)
+- `flux2_complete_training.json` - legacy-вариант
 
 ---
 

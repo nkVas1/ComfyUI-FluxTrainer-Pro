@@ -110,7 +110,7 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "adamw8bit",
+        "adafactor",
         1,
         "constant_with_warmup",
         100,
@@ -1013,20 +1013,11 @@
           "link": null
         },
         {
-          "localized_name": "clip_l",
-          "name": "clip_l",
+          "localized_name": "text_encoder",
+          "name": "text_encoder",
           "type": "COMBO",
           "widget": {
-            "name": "clip_l"
-          },
-          "link": null
-        },
-        {
-          "localized_name": "t5",
-          "name": "t5",
-          "type": "COMBO",
-          "widget": {
-            "name": "t5"
+            "name": "text_encoder"
           },
           "link": null
         },
@@ -1060,7 +1051,6 @@
       "widgets_values": [
         "flux2Klein_9bBase.safetensors",
         "flux2-vae.safetensors",
-        "qwen_3_8b.safetensors",
         "qwen_3_8b.safetensors",
         ""
       ],
@@ -1795,16 +1785,16 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        1024,
-        1024,
+        512,
+        512,
         1,
         "G:\\ComfyUI-StableDif-t27-p312-cu128-v2.1\\ComfyUI\\kohya_train\\mallorav1",
-        "childish penis",
+        "sks_person",
         true,
         false,
         10,
         256,
-        1024,
+        768,
         [
           false,
           true

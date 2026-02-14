@@ -149,7 +149,7 @@
         "Node name for S&R": "OptimizerConfig"
       },
       "widgets_values": [
-        "adamw8bit",
+        "adafactor",
         1.0,
         "constant_with_warmup",
         100,

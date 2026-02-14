@@ -99,6 +99,12 @@ python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-FluxTra
 | Flux.2 Klein 9B | 8GB | 12GB+ | aggressive + 25 blocks |
 | Flux.2 Dev | 12GB | 24GB+ | conservative |
 
+### 🛠️ Диагностика запуска в большом наборе custom_nodes
+
+- Если в логах есть `[ComfyUI-FluxTrainer-Pro] [OK] Loaded Flux.2 nodes`, значит наш плагин успешно инициализирован.
+- Ошибки других нод (например Numba/InsightFace/LTXVideo) обычно не означают поломку FluxTrainer.
+- Для диагностики обучения смотрите traceback, где фигурируют `nodes_flux2.py`, `flux_train_network_comfy.py`, `library/flux_utils.py`.
+
 ### 📚 Documentation
 
 - [FLUX2_TRAINING_GUIDE.md](docs/FLUX2_TRAINING_GUIDE.md) — Complete Flux.2 training guide

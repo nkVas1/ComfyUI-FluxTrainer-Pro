@@ -31,6 +31,7 @@ class FluxParams:
     theta: int
     qkv_bias: bool
     guidance_embed: bool
+    mlp_gated: bool = False
 
 
 # region autoencoder
@@ -708,20 +709,23 @@ class Modulation(nn.Module):
 
 
 class DoubleStreamBlock(nn.Module):
-    def __init__(self, hidden_size: int, num_heads: int, mlp_ratio: float, qkv_bias: bool = False):
+    def __init__(self, hidden_size: int, num_heads: int, mlp_ratio: float, qkv_bias: bool = False, mlp_gated: bool = False):
         super().__init__()
 
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
         self.num_heads = num_heads
         self.hidden_size = hidden_size
+        self.mlp_hidden_dim = mlp_hidden_dim
+        self.mlp_gated = mlp_gated
+        mlp_in_dim = mlp_hidden_dim * (2 if mlp_gated else 1)
         self.img_mod = Modulation(hidden_size, double=True)
         self.img_norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.img_attn = SelfAttention(dim=hidden_size, num_heads=num_heads, qkv_bias=qkv_bias)
 
         self.img_norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.img_mlp = nn.Sequential(
-            nn.Linear(hidden_size, mlp_hidden_dim, bias=True),
-            nn.GELU(approximate="tanh"),
+            nn.Linear(hidden_size, mlp_in_dim, bias=True),
+            nn.GELU(approximate="tanh") if not mlp_gated else nn.Identity(),
             nn.Linear(mlp_hidden_dim, hidden_size, bias=True),
         )
 
@@ -731,8 +735,8 @@ class DoubleStreamBlock(nn.Module):
 
         self.txt_norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.txt_mlp = nn.Sequential(
-            nn.Linear(hidden_size, mlp_hidden_dim, bias=True),
-            nn.GELU(approximate="tanh"),
+            nn.Linear(hidden_size, mlp_in_dim, bias=True),
+            nn.GELU(approximate="tanh") if not mlp_gated else nn.Identity(),
             nn.Linear(mlp_hidden_dim, hidden_size, bias=True),
         )
 
@@ -746,6 +750,15 @@ class DoubleStreamBlock(nn.Module):
     def disable_gradient_checkpointing(self):
         self.gradient_checkpointing = False
         self.cpu_offload_checkpointing = False
+
+    def _run_mlp(self, mlp: nn.Sequential, x: Tensor) -> Tensor:
+        mlp_in = mlp[0](x)
+        if self.mlp_gated:
+            gate, value = mlp_in.chunk(2, dim=-1)
+            mlp_act = nn.functional.gelu(gate, approximate="tanh") * value
+        else:
+            mlp_act = mlp[1](mlp_in)
+        return mlp[2](mlp_act)
 
     def _forward(
         self, img: Tensor, txt: Tensor, vec: Tensor, pe: Tensor, txt_attention_mask: Optional[Tensor] = None
@@ -789,11 +802,11 @@ class DoubleStreamBlock(nn.Module):
 
         # calculate the img blocks
         img = img + img_mod1.gate * self.img_attn.proj(img_attn)
-        img = img + img_mod2.gate * self.img_mlp((1 + img_mod2.scale) * self.img_norm2(img) + img_mod2.shift)
+        img = img + img_mod2.gate * self._run_mlp(self.img_mlp, (1 + img_mod2.scale) * self.img_norm2(img) + img_mod2.shift)
 
         # calculate the txt blocks
         txt = txt + txt_mod1.gate * self.txt_attn.proj(txt_attn)
-        txt = txt + txt_mod2.gate * self.txt_mlp((1 + txt_mod2.scale) * self.txt_norm2(txt) + txt_mod2.shift)
+        txt = txt + txt_mod2.gate * self._run_mlp(self.txt_mlp, (1 + txt_mod2.scale) * self.txt_norm2(txt) + txt_mod2.shift)
         return img, txt
 
     def forward(
@@ -831,6 +844,7 @@ class SingleStreamBlock(nn.Module):
         hidden_size: int,
         num_heads: int,
         mlp_ratio: float = 4.0,
+        mlp_gated: bool = False,
         qk_scale: float | None = None,
     ):
         super().__init__()
@@ -840,8 +854,10 @@ class SingleStreamBlock(nn.Module):
         self.scale = qk_scale or head_dim**-0.5
 
         self.mlp_hidden_dim = int(hidden_size * mlp_ratio)
+        self.mlp_gated = mlp_gated
+        mlp_in_dim = self.mlp_hidden_dim * (2 if mlp_gated else 1)
         # qkv and mlp_in
-        self.linear1 = nn.Linear(hidden_size, hidden_size * 3 + self.mlp_hidden_dim)
+        self.linear1 = nn.Linear(hidden_size, hidden_size * 3 + mlp_in_dim)
         # proj and mlp_out
         self.linear2 = nn.Linear(hidden_size + self.mlp_hidden_dim, hidden_size)
 
@@ -867,7 +883,13 @@ class SingleStreamBlock(nn.Module):
     def _forward(self, x: Tensor, vec: Tensor, pe: Tensor, txt_attention_mask: Optional[Tensor] = None) -> Tensor:
         mod, _ = self.modulation(vec)
         x_mod = (1 + mod.scale) * self.pre_norm(x) + mod.shift
-        qkv, mlp = torch.split(self.linear1(x_mod), [3 * self.hidden_size, self.mlp_hidden_dim], dim=-1)
+        if self.mlp_gated:
+            qkv, mlp_in = torch.split(self.linear1(x_mod), [3 * self.hidden_size, 2 * self.mlp_hidden_dim], dim=-1)
+            gate, value = mlp_in.chunk(2, dim=-1)
+            mlp = nn.functional.gelu(gate, approximate="tanh") * value
+        else:
+            qkv, mlp_in = torch.split(self.linear1(x_mod), [3 * self.hidden_size, self.mlp_hidden_dim], dim=-1)
+            mlp = self.mlp_act(mlp_in)
 
         q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
         q, k = self.norm(q, k, v)
@@ -894,7 +916,7 @@ class SingleStreamBlock(nn.Module):
         attn = attention(q, k, v, pe=pe, attn_mask=attn_mask)
 
         # compute activation in mlp stream, cat again and run second linear layer
-        output = self.linear2(torch.cat((attn, self.mlp_act(mlp)), 2))
+        output = self.linear2(torch.cat((attn, mlp), 2))
         return x + mod.gate * output
 
     def forward(self, x: Tensor, vec: Tensor, pe: Tensor, txt_attention_mask: Optional[Tensor] = None) -> Tensor:
@@ -968,6 +990,7 @@ class Flux(nn.Module):
                     self.num_heads,
                     mlp_ratio=params.mlp_ratio,
                     qkv_bias=params.qkv_bias,
+                    mlp_gated=params.mlp_gated,
                 )
                 for _ in range(params.depth)
             ]
@@ -975,7 +998,7 @@ class Flux(nn.Module):
 
         self.single_blocks = nn.ModuleList(
             [
-                SingleStreamBlock(self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio)
+                SingleStreamBlock(self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio, mlp_gated=params.mlp_gated)
                 for _ in range(params.depth_single_blocks)
             ]
         )

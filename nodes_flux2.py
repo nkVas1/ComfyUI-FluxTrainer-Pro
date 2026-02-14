@@ -1014,6 +1014,20 @@ class Flux2InitTraining:
         saved_args_file_path = os.path.join(output_dir, f"{output_name}_args.json")
         with open(saved_args_file_path, 'w', encoding='utf-8') as f:
             json.dump(vars(args), f, indent=4, ensure_ascii=False)
+
+        # === FluxTrainer Pro Dashboard: mark PREPARING before init_train ===
+        try:
+            from .training_state import TrainingState
+            _config_snapshot = {
+                k: str(v) for k, v in vars(args).items()
+                if not k.startswith('_') and not callable(v)
+            }
+            TrainingState.instance().start_preparing(
+                config=_config_snapshot,
+                model_name=f"{output_name}_{network_suffix}_rank{network_dim}_{save_dtype}",
+            )
+        except Exception:
+            pass
         
         # Сохраняем workflow
         if extra_pnginfo is not None:
@@ -1036,7 +1050,18 @@ class Flux2InitTraining:
         
         with torch.inference_mode(False):
             network_trainer = FluxNetworkTrainer()
-            training_loop = network_trainer.init_train(args)
+            try:
+                training_loop = network_trainer.init_train(args)
+            except Exception as e:
+                try:
+                    from .training_state import TrainingState
+                    TrainingState.instance().finish_training(
+                        success=False,
+                        message=f"Init failed: {e}",
+                    )
+                except Exception:
+                    pass
+                raise RuntimeError(f"Flux.2 init_train failed: {e}") from e
         
         final_output_path = os.path.join(output_dir, f"{output_name}_rank{network_dim}_{save_dtype}")
         epochs_count = network_trainer.num_train_epochs

@@ -175,8 +175,10 @@ def _infer_flux_params_from_state_dict(base_params, sd: dict):
 
     img_in_weight = sd.get("img_in.weight")
     txt_in_weight = sd.get("txt_in.weight")
-    ds_mlp_weight = sd.get("double_blocks.0.img_mlp.0.weight")
-    ss_linear1_weight = sd.get("single_blocks.0.linear1.weight")
+    ds_mlp_in_proj_weight = sd.get("double_blocks.0.img_mlp.0.weight")
+    ds_mlp_out_proj_weight = sd.get("double_blocks.0.img_mlp.2.weight")
+    ss_in_proj_weight = sd.get("single_blocks.0.linear1.weight")
+    ss_out_proj_weight = sd.get("single_blocks.0.linear2.weight")
 
     inferred = {}
 
@@ -191,12 +193,38 @@ def _infer_flux_params_from_state_dict(base_params, sd: dict):
 
     hidden_size = inferred.get("hidden_size", params.hidden_size)
 
-    if ds_mlp_weight is not None and ds_mlp_weight.ndim == 2 and hidden_size > 0:
-        inferred["mlp_ratio"] = float(ds_mlp_weight.shape[0]) / float(hidden_size)
-    elif ss_linear1_weight is not None and ss_linear1_weight.ndim == 2 and hidden_size > 0:
-        mlp_hidden_dim = int(ss_linear1_weight.shape[0]) - 3 * int(hidden_size)
-        if mlp_hidden_dim > 0:
-            inferred["mlp_ratio"] = float(mlp_hidden_dim) / float(hidden_size)
+    mlp_hidden_dim = None
+    if ds_mlp_out_proj_weight is not None and ds_mlp_out_proj_weight.ndim == 2 and hidden_size > 0:
+        # img_mlp.2: Linear(mlp_hidden_dim -> hidden_size), weight shape = [hidden_size, mlp_hidden_dim]
+        mlp_hidden_dim = int(ds_mlp_out_proj_weight.shape[1])
+    elif ss_out_proj_weight is not None and ss_out_proj_weight.ndim == 2 and hidden_size > 0:
+        # single_blocks.linear2: Linear(hidden_size + mlp_hidden_dim -> hidden_size)
+        candidate = int(ss_out_proj_weight.shape[1]) - int(hidden_size)
+        if candidate > 0:
+            mlp_hidden_dim = candidate
+
+    if mlp_hidden_dim is not None and hidden_size > 0:
+        inferred["mlp_ratio"] = float(mlp_hidden_dim) / float(hidden_size)
+
+    # infer gated mlp architecture (GEGLU-like)
+    gated_votes = []
+    if mlp_hidden_dim is not None and mlp_hidden_dim > 0:
+        if ds_mlp_in_proj_weight is not None and ds_mlp_in_proj_weight.ndim == 2:
+            ds_in = int(ds_mlp_in_proj_weight.shape[0])
+            if ds_in == mlp_hidden_dim * 2:
+                gated_votes.append(True)
+            elif ds_in == mlp_hidden_dim:
+                gated_votes.append(False)
+
+        if ss_in_proj_weight is not None and ss_in_proj_weight.ndim == 2:
+            ss_in = int(ss_in_proj_weight.shape[0])
+            if ss_in == (3 * hidden_size + 2 * mlp_hidden_dim):
+                gated_votes.append(True)
+            elif ss_in == (3 * hidden_size + mlp_hidden_dim):
+                gated_votes.append(False)
+
+    if gated_votes:
+        inferred["mlp_gated"] = sum(1 for v in gated_votes if v) >= sum(1 for v in gated_votes if not v)
 
     # depth inference from block keys
     double_indices = [
@@ -246,6 +274,7 @@ def _infer_flux_params_from_state_dict(base_params, sd: dict):
             f"context_in_dim={inferred.get('context_in_dim', params.context_in_dim)}, "
             f"hidden_size={inferred.get('hidden_size', params.hidden_size)}, "
             f"mlp_ratio={inferred.get('mlp_ratio', params.mlp_ratio):.3f}, "
+            f"mlp_gated={inferred.get('mlp_gated', getattr(params, 'mlp_gated', False))}, "
             f"num_heads={inferred.get('num_heads', params.num_heads)}, "
             f"depth={inferred.get('depth', params.depth)}, "
             f"depth_single_blocks={inferred.get('depth_single_blocks', params.depth_single_blocks)}, "
@@ -301,20 +330,79 @@ def load_flow_model(
     # align is_schnell with inferred guidance support
     is_schnell = not params.guidance_embed
 
-    logger.info(
-        f"Building Flux model {base_name} from {'Diffusers' if is_diffusers else 'BFL'} checkpoint "
-        f"(hidden={params.hidden_size}, in={params.in_channels}, context={params.context_in_dim}, "
-        f"depth={params.depth}/{params.depth_single_blocks}, heads={params.num_heads}, mlp_ratio={params.mlp_ratio})"
-    )
+    def _try_build_and_load(candidate_params):
+        logger.info(
+            f"Building Flux model {base_name} from {'Diffusers' if is_diffusers else 'BFL'} checkpoint "
+            f"(hidden={candidate_params.hidden_size}, in={candidate_params.in_channels}, "
+            f"context={candidate_params.context_in_dim}, depth={candidate_params.depth}/{candidate_params.depth_single_blocks}, "
+            f"heads={candidate_params.num_heads}, mlp_ratio={candidate_params.mlp_ratio}, "
+            f"mlp_gated={getattr(candidate_params, 'mlp_gated', False)})"
+        )
+        with torch.device("meta"):
+            candidate_model = Flux(candidate_params)
+            if dtype is not None:
+                candidate_model = candidate_model.to(dtype)
+        candidate_info = candidate_model.load_state_dict(sd, strict=False, assign=True)
+        return candidate_model, candidate_info
 
-    with torch.device("meta"):
-        model = Flux(params)
-        if dtype is not None:
-            model = model.to(dtype)
+    candidates = [params]
+    seen = {
+        (
+            params.hidden_size,
+            params.in_channels,
+            params.context_in_dim,
+            params.depth,
+            params.depth_single_blocks,
+            params.num_heads,
+            float(params.mlp_ratio),
+            bool(getattr(params, "mlp_gated", False)),
+        )
+    }
 
-    info = model.load_state_dict(sd, strict=False, assign=True)
-    logger.info(f"Loaded Flux: {info}")
-    return is_schnell, model
+    # Fallback candidates for inconsistent Flux.2 checkpoints
+    for fallback in [
+        replace(params, mlp_gated=not getattr(params, "mlp_gated", False)),
+        replace(params, mlp_ratio=float(params.mlp_ratio) * 2.0, mlp_gated=False),
+        replace(params, mlp_ratio=max(float(params.mlp_ratio) / 2.0, 0.5), mlp_gated=True),
+    ]:
+        key = (
+            fallback.hidden_size,
+            fallback.in_channels,
+            fallback.context_in_dim,
+            fallback.depth,
+            fallback.depth_single_blocks,
+            fallback.num_heads,
+            float(fallback.mlp_ratio),
+            bool(getattr(fallback, "mlp_gated", False)),
+        )
+        if key not in seen:
+            seen.add(key)
+            candidates.append(fallback)
+
+    last_error = None
+    for idx, candidate in enumerate(candidates):
+        try:
+            model, info = _try_build_and_load(candidate)
+            if idx > 0:
+                logger.warning(
+                    "Loaded Flux after fallback candidate #%d (mlp_ratio=%s, mlp_gated=%s)",
+                    idx,
+                    candidate.mlp_ratio,
+                    getattr(candidate, "mlp_gated", False),
+                )
+            logger.info(f"Loaded Flux: {info}")
+            return is_schnell, model
+        except RuntimeError as e:
+            last_error = e
+            logger.warning(
+                "Flux candidate #%d failed (mlp_ratio=%s, mlp_gated=%s): %s",
+                idx,
+                candidate.mlp_ratio,
+                getattr(candidate, "mlp_gated", False),
+                str(e).splitlines()[0] if str(e) else "runtime error",
+            )
+
+    raise last_error if last_error is not None else RuntimeError("Failed to load Flux model from checkpoint")
 
 
 def load_ae(
