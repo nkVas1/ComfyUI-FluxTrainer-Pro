@@ -106,7 +106,9 @@ def _load_qwen_like_text_encoder(sd: dict) -> QwenLikeTextEncoderAdapter:
 
     model_keys = set(qwen.state_dict().keys())
 
+    model_sd = qwen.state_dict()
     filtered_sd = {}
+    skipped_by_shape = 0
     for key, value in sd.items():
         if key.startswith("lm_head."):
             continue
@@ -115,7 +117,20 @@ def _load_qwen_like_text_encoder(sd: dict) -> QwenLikeTextEncoderAdapter:
 
         normalized_key = key[6:] if key.startswith("model.") else key
         if normalized_key in model_keys:
-            filtered_sd[normalized_key] = value
+            if model_sd[normalized_key].shape == value.shape:
+                filtered_sd[normalized_key] = value
+            else:
+                skipped_by_shape += 1
+
+    if skipped_by_shape:
+        logger.warning(
+            "Qwen-like checkpoint has %d tensor shape mismatches. "
+            "Those tensors were skipped for compatibility.",
+            skipped_by_shape,
+        )
+
+    if not filtered_sd:
+        raise RuntimeError("No compatible tensors found in Qwen-like state dict")
 
     info = qwen.load_state_dict(filtered_sd, strict=False, assign=True)
     logger.info(f"Loaded Qwen-like text encoder: {info}")
@@ -730,11 +745,29 @@ def load_t5xxl(
     if is_qwen_like:
         logger.warning(
             "Detected Qwen/Llama-style text encoder keys in %s. "
-            "Continuing in compatibility mode for Flux.2 Klein. "
-            "Recommended checkpoint for Klein 9B: qwen_3_8b_fp8mixed.safetensors",
+            "Continuing in compatibility mode for Flux.2 Klein.",
             ckpt_path,
         )
-        return _load_qwen_like_text_encoder(sd)
+        try:
+            return _load_qwen_like_text_encoder(sd)
+        except RuntimeError as e:
+            fallback_path = None
+            if ckpt_path and "qwen_3_8b_fp8mixed.safetensors" in os.path.basename(ckpt_path).lower():
+                candidate = os.path.join(os.path.dirname(ckpt_path), "qwen_3_8b.safetensors")
+                if os.path.exists(candidate):
+                    fallback_path = candidate
+
+            if fallback_path is not None:
+                logger.warning(
+                    "Qwen fp8mixed checkpoint is incompatible in this environment (%s). "
+                    "Falling back to %s",
+                    e,
+                    os.path.basename(fallback_path),
+                )
+                fallback_sd = load_safetensors(fallback_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype)
+                return _load_qwen_like_text_encoder(fallback_sd)
+
+            raise
 
     info = t5xxl.load_state_dict(sd, strict=False, assign=True)
     logger.info(f"Loaded T5xxl: {info}")

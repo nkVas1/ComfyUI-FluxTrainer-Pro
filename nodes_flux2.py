@@ -55,17 +55,10 @@ def _resolve_flux2_text_encoder_path(text_encoder_path: str) -> str:
     if basename != "qwen_3_8b.safetensors":
         return text_encoder_path
 
-    parent_dir = os.path.dirname(text_encoder_path)
-    preferred_name = "qwen_3_8b_fp8mixed.safetensors"
-    preferred_path = os.path.join(parent_dir, preferred_name)
-    if os.path.exists(preferred_path):
-        logger.warning(
-            "[AUTO-FIX] Detected %s; switching to recommended Flux.2 Klein checkpoint: %s",
-            os.path.basename(text_encoder_path),
-            preferred_name,
-        )
-        return preferred_path
-
+    logger.info(
+        "[TEXT-ENCODER] Using user-selected checkpoint for Flux.2 Klein: %s",
+        os.path.basename(text_encoder_path),
+    )
     return text_encoder_path
     logger.info(f"{_ANSI_ORANGE}>>> {title}{_ANSI_RESET}")
     if subtitle:
