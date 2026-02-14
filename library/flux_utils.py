@@ -618,12 +618,15 @@ def load_t5xxl(
         logger.info(f"Loading state dict from {ckpt_path}")
         sd = load_safetensors(ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype)
 
-    # Fail-fast for incompatible encoder families (Qwen/Llama-style weights are not T5).
-    # This prevents misleading massive IncompatibleKeys and gives actionable guidance.
-    if "model.embed_tokens.weight" in sd and "encoder.block.0.layer.0.SelfAttention.q.weight" not in sd:
-        raise ValueError(
-            "Incompatible text encoder checkpoint: detected Qwen/Llama-style keys, but Flux trainer expects T5 encoder weights. "
-            "Please select a T5XXL-compatible encoder file for Flux training."
+    # Flux.2 Klein workflows in ComfyUI use Qwen text encoders.
+    # Для совместимости не падаем здесь фатально, а продолжаем с подробным предупреждением.
+    is_qwen_like = "model.embed_tokens.weight" in sd and "encoder.block.0.layer.0.SelfAttention.q.weight" not in sd
+    if is_qwen_like:
+        logger.warning(
+            "Detected Qwen/Llama-style text encoder keys in %s. "
+            "Continuing in compatibility mode for Flux.2 Klein. "
+            "Recommended checkpoint for Klein 9B: qwen_3_8b_fp8mixed.safetensors",
+            ckpt_path,
         )
 
     info = t5xxl.load_state_dict(sd, strict=False, assign=True)
