@@ -23,6 +23,7 @@ import json
 import shlex
 import shutil
 import time
+import glob
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, Callable
@@ -36,6 +37,60 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
+
+
+def _create_dataset_preview_grid_file(
+    dataset_path: str,
+    output_path: str,
+    grid_cols: int = 4,
+    grid_rows: int = 4,
+    image_size: int = 192,
+) -> Optional[str]:
+    """Собирает и сохраняет превью-сетку датасета в файл. Возвращает путь или None."""
+    if not dataset_path or not os.path.isdir(dataset_path):
+        return None
+
+    image_extensions = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+    all_images = []
+    for ext in image_extensions:
+        all_images.extend(glob.glob(os.path.join(dataset_path, f"*{ext}")))
+        all_images.extend(glob.glob(os.path.join(dataset_path, f"*{ext.upper()}")))
+
+    if not all_images:
+        return None
+
+    try:
+        from PIL import Image
+    except Exception:
+        return None
+
+    max_preview = max(1, grid_cols * grid_rows)
+    selected_images = all_images[:max_preview]
+
+    grid_width = grid_cols * image_size
+    grid_height = grid_rows * image_size
+    grid = Image.new("RGB", (grid_width, grid_height), color=(36, 36, 36))
+
+    for idx, img_path in enumerate(selected_images):
+        row = idx // grid_cols
+        col = idx % grid_cols
+        if row >= grid_rows:
+            break
+        try:
+            img = Image.open(img_path).convert("RGB")
+            img.thumbnail((image_size, image_size), Image.Resampling.LANCZOS)
+            x_offset = col * image_size + (image_size - img.width) // 2
+            y_offset = row * image_size + (image_size - img.height) // 2
+            grid.paste(img, (x_offset, y_offset))
+        except Exception:
+            continue
+
+    try:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        grid.save(output_path, format="JPEG", quality=92)
+        return output_path
+    except Exception:
+        return None
 
 # =============================================================================
 # LAZY IMPORT SYSTEM - Ключевое решение для стабильной загрузки
@@ -1051,6 +1106,15 @@ class Flux2InitTraining:
                 "batch_size": dataset_json.get("datasets", [{}])[0].get("batch_size", 1) if dataset_json.get("datasets") else 1,
                 "subset_info": subset_info,
             }
+
+            preview_source_dir = subset_info[0].get("image_dir") if subset_info else ""
+            preview_file_path = os.path.join(output_dir, f"{output_name}_dataset_preview_grid.jpg")
+            generated_preview = _create_dataset_preview_grid_file(
+                dataset_path=preview_source_dir,
+                output_path=preview_file_path,
+            )
+            if generated_preview:
+                dataset_info["preview_grid_path"] = generated_preview
 
             state = TrainingState.instance()
             state.set_dataset_info(dataset_info)

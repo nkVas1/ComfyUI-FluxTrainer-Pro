@@ -139,6 +139,20 @@ def setup_api_routes():
             })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
+
+    @server.routes.get("/api/fluxtrainer/dataset_preview")
+    async def api_dataset_preview(request):
+        """Preview grid датасета текущей сессии"""
+        try:
+            dataset_info = state.dataset_info if isinstance(state.dataset_info, dict) else {}
+            preview_path = dataset_info.get("preview_grid_path", "")
+
+            if not preview_path or not os.path.exists(preview_path):
+                return web.json_response({"error": "Preview not found"}, status=404)
+
+            return web.FileResponse(preview_path)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
     
     # === Presets ===
     

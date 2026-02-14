@@ -555,6 +555,7 @@ class FTProAPI {
     async getSamples(last = 20) { return this._request(`samples?last=${last}`); }
     async getConfig() { return this._request('config'); }
     async getDataset() { return this._request('dataset'); }
+    getDatasetPreviewUrl() { return `/api/fluxtrainer/dataset_preview?t=${Date.now()}`; }
     async getPresets() { return this._request('presets/list'); }
     async savePreset(data) {
         return this._request('presets/save', {
@@ -630,6 +631,7 @@ class FTProAPI {
                 api.addEventListener("fluxtrainer.progress", (d) => this._emit('progress', d.detail));
                 api.addEventListener("fluxtrainer.status", (d) => this._emit('status_change', d.detail));
                 api.addEventListener("fluxtrainer.sample", (d) => this._emit('sample', d.detail));
+                api.addEventListener("fluxtrainer.dataset", (d) => this._emit('dataset', d.detail));
                 api.addEventListener("fluxtrainer.started", (d) => this._emit('started', d.detail));
                 api.addEventListener("fluxtrainer.finished", (d) => this._emit('finished', d.detail));
             }
@@ -1152,6 +1154,13 @@ class FTProDashboard {
             this._updateProgress(data);
         });
 
+        // Dataset changed (WebSocket)
+        this.api.on('dataset', () => {
+            if (this.isOpen && this.currentTab === 'dataset') {
+                this._loadDatasetPanel();
+            }
+        });
+
         // Training finished
         this.api.on('finished', (data) => {
             this._showNotification(
@@ -1467,6 +1476,23 @@ class FTProDashboard {
                     `;
                 });
                 html += `</div>`;
+            }
+
+            if (info.preview_grid_path) {
+                html += `
+                    <div style="margin-top:14px">
+                        <div style="font-size:12px;color:#a0aec0;margin-bottom:8px">Preview grid датасета</div>
+                        <div style="border:1px solid rgba(255,255,255,0.08);border-radius:10px;overflow:hidden;background:rgba(255,255,255,0.02)">
+                            <img
+                                src="${this.api.getDatasetPreviewUrl()}"
+                                alt="Dataset preview grid"
+                                loading="lazy"
+                                style="display:block;width:100%;height:auto;max-height:380px;object-fit:contain"
+                                onerror="this.closest('div').style.display='none'"
+                            />
+                        </div>
+                    </div>
+                `;
             }
 
             panel.innerHTML = html;

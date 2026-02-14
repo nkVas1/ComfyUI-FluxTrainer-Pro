@@ -202,7 +202,8 @@ class TrainingState:
             self.config = config
             inferred_dataset_info = self._extract_dataset_info_from_config(config)
             if inferred_dataset_info:
-                self.dataset_info = inferred_dataset_info
+                preserved = self.dataset_info if isinstance(self.dataset_info, dict) else {}
+                self.dataset_info = {**inferred_dataset_info, **preserved}
             self.max_steps = max_steps
             self.max_epochs = max_epochs
             self.model_name = model_name
@@ -237,7 +238,8 @@ class TrainingState:
             self.config = config
             inferred_dataset_info = self._extract_dataset_info_from_config(config)
             if inferred_dataset_info:
-                self.dataset_info = inferred_dataset_info
+                preserved = self.dataset_info if isinstance(self.dataset_info, dict) else {}
+                self.dataset_info = {**inferred_dataset_info, **preserved}
             self.model_name = model_name
             self.error_message = ""
             self.last_update_time = time.time()
