@@ -1159,20 +1159,8 @@ class FTProDashboard {
             );
         });
 
-        // Keyboard shortcut: Ctrl+Shift+T — toggle dashboard
-        // ВАЖНО: НЕ используем document-level mousedown/click listeners!
-        // Они вызывают DOM-мутации во время обработки событий LiteGraph,
-        // что ломает event chain и делает ComfyUI неработоспособным.
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this.isOpen) {
-                this.close();
-                return;
-            }
-            if (e.ctrlKey && e.shiftKey && e.key === 'T') {
-                e.preventDefault();
-                this.toggle();
-            }
-        });
+        // Без document-level listeners.
+        // Любые глобальные keyboard/mouse hooks могут конфликтовать с LiteGraph в ComfyUI.
     }
 
     // === UI Updates ===

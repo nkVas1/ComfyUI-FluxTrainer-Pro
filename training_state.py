@@ -79,7 +79,9 @@ class TrainingState:
             cls._instance = None
     
     def __init__(self):
-        self._data_lock = threading.Lock()
+        # Reentrant lock: to_dict вызывает методы, которые тоже используют lock.
+        # Обычный Lock здесь может приводить к дедлоку API /status.
+        self._data_lock = threading.RLock()
         
         # === Статус ===
         self.status: TrainingStatus = TrainingStatus.IDLE

@@ -74,8 +74,21 @@ class FluxNetworkTrainer(NetworkTrainer):
             logger.info(f"enable block swap: blocks_to_swap={args.blocks_to_swap}")
             model.enable_block_swap(args.blocks_to_swap, accelerator.device)
 
-        clip_l = flux_utils.load_clip_l(args.clip_l, weight_dtype, "cpu", disable_mmap=args.disable_mmap_load_safetensors)
-        clip_l.eval()
+        text_encoder_path = getattr(args, "text_encoder", None)
+        clip_l_path = getattr(args, "clip_l", None)
+        t5xxl_path = getattr(args, "t5xxl", None)
+
+        # Single-encoder mode for Flux.2: use one TE file (e.g. qwen_3_8b) as T5 stream
+        if text_encoder_path:
+            t5xxl_path = text_encoder_path
+
+        clip_l = None
+        if clip_l_path:
+            clip_l = flux_utils.load_clip_l(clip_l_path, weight_dtype, "cpu", disable_mmap=args.disable_mmap_load_safetensors)
+            clip_l.eval()
+        else:
+            logger.info("CLIP-L path is not set: running Flux with single text encoder (T5 stream only)")
+            self.train_clip_l = False
 
         # if the file is fp8 and we are using fp8_base (not unet), we can load it as is (fp8)
         if args.fp8_base and not args.fp8_base_unet:
@@ -84,7 +97,10 @@ class FluxNetworkTrainer(NetworkTrainer):
             loading_dtype = weight_dtype
 
         # loading t5xxl to cpu takes a long time, so we should load to gpu in future
-        t5xxl = flux_utils.load_t5xxl(args.t5xxl, loading_dtype, "cpu", disable_mmap=args.disable_mmap_load_safetensors)
+        if not t5xxl_path:
+            raise ValueError("Text encoder path is required (t5xxl/text_encoder)")
+
+        t5xxl = flux_utils.load_t5xxl(t5xxl_path, loading_dtype, "cpu", disable_mmap=args.disable_mmap_load_safetensors)
         t5xxl.eval()
         if args.fp8_base and not args.fp8_base_unet:
             # check dtype of model
@@ -140,7 +156,8 @@ class FluxNetworkTrainer(NetworkTrainer):
             return text_encoders  # both CLIP-L and T5XXL are needed for encoding
 
     def get_text_encoders_train_flags(self, args, text_encoders):
-        return [self.train_clip_l, self.train_t5xxl]
+        clip_train_flag = self.train_clip_l and len(text_encoders) > 0 and text_encoders[0] is not None
+        return [clip_train_flag, self.train_t5xxl]
 
     def get_text_encoder_outputs_caching_strategy(self, args):
         if args.cache_text_encoder_outputs:
@@ -170,7 +187,8 @@ class FluxNetworkTrainer(NetworkTrainer):
 
             # When TE is not be trained, it will not be prepared so we need to use explicit autocast
             logger.info("move text encoders to gpu")
-            text_encoders[0].to(accelerator.device, dtype=weight_dtype)  # always not fp8
+            if text_encoders[0] is not None:
+                text_encoders[0].to(accelerator.device, dtype=weight_dtype)  # always not fp8
             text_encoders[1].to(accelerator.device)
 
             if text_encoders[1].dtype == torch.float8_e4m3fn:
@@ -225,7 +243,7 @@ class FluxNetworkTrainer(NetworkTrainer):
             accelerator.wait_for_everyone()
 
             # move back to cpu
-            if not self.is_train_text_encoder(args):
+            if text_encoders[0] is not None and not self.is_train_text_encoder(args):
                 logger.info("move CLIP-L back to cpu")
                 text_encoders[0].to("cpu")
             logger.info("move t5XXL back to cpu")
@@ -238,7 +256,8 @@ class FluxNetworkTrainer(NetworkTrainer):
                 unet.to(org_unet_device)
         else:
             # Text Encoder
-            text_encoders[0].to(accelerator.device, dtype=weight_dtype)
+            if text_encoders[0] is not None:
+                text_encoders[0].to(accelerator.device, dtype=weight_dtype)
             text_encoders[1].to(accelerator.device)
 
     def sample_images(self, epoch, global_step, validation_settings):

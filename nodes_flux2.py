@@ -262,11 +262,8 @@ class Flux2TrainModelSelect:
                 "vae": (folder_paths.get_filename_list("vae"), {
                     "tooltip": "VAE model (ae.safetensors)"
                 }),
-                "clip_l": (folder_paths.get_filename_list("clip"), {
-                    "tooltip": "CLIP-L text encoder"
-                }),
-                "t5": (folder_paths.get_filename_list("clip"), {
-                    "tooltip": "T5-XXL text encoder"
+                "text_encoder": (folder_paths.get_filename_list("clip"), {
+                    "tooltip": "Text encoder for Flux.2 (e.g. qwen_3_8b.safetensors for Klein 9B)"
                 }),
             },
             "optional": {
@@ -283,14 +280,13 @@ class Flux2TrainModelSelect:
     FUNCTION = "loadmodel"
     CATEGORY = "FluxTrainer/Flux2"
 
-    def loadmodel(self, transformer, vae, clip_l, t5, lora_path=""):
+    def loadmodel(self, transformer, vae, text_encoder, lora_path=""):
         # LAZY IMPORT - загружаем только при использовании
         flux_utils = _lazy_import_flux_utils()
         
         transformer_path = folder_paths.get_full_path("unet", transformer)
         vae_path = folder_paths.get_full_path("vae", vae)
-        clip_path = folder_paths.get_full_path("clip", clip_l)
-        t5_path = folder_paths.get_full_path("clip", t5)
+        text_encoder_path = folder_paths.get_full_path("clip", text_encoder)
 
         # Определяем тип модели
         model_type = "auto"
@@ -309,8 +305,7 @@ class Flux2TrainModelSelect:
         flux2_models = {
             "transformer": transformer_path,
             "vae": vae_path,
-            "clip_l": clip_path,
-            "t5": t5_path,
+            "text_encoder": text_encoder_path,
             "lora_path": lora_path,
             "model_type": model_type
         }
@@ -338,15 +333,10 @@ class Flux2TrainModelPaths:
                     "multiline": False,
                     "tooltip": "Full path or filename in models/vae"
                 }),
-                "clip_l_path": ("STRING", {
+                "text_encoder_path": ("STRING", {
                     "default": "",
                     "multiline": False,
-                    "tooltip": "Full path or filename in models/clip"
-                }),
-                "t5_path": ("STRING", {
-                    "default": "",
-                    "multiline": False,
-                    "tooltip": "Full path or filename in models/clip"
+                    "tooltip": "Full path or filename in models/clip (e.g. qwen_3_8b.safetensors)"
                 }),
             },
             "optional": {
@@ -369,7 +359,7 @@ class Flux2TrainModelPaths:
                 friendly_names = {
                     "unet": "Transformer (UNet)",
                     "vae": "VAE",
-                    "clip": "CLIP / T5",
+                    "clip": "Text Encoder",
                 }
                 name = friendly_names.get(folder_key, folder_key)
                 raise ValueError(
@@ -392,14 +382,13 @@ class Flux2TrainModelPaths:
             f"Проверьте путь и наличие файла."
         )
 
-    def loadmodel_paths(self, transformer_path, vae_path, clip_l_path, t5_path, lora_path=""):
+    def loadmodel_paths(self, transformer_path, vae_path, text_encoder_path, lora_path=""):
         # LAZY IMPORT
         flux_utils = _lazy_import_flux_utils()
         
         transformer_path = self._resolve(transformer_path, "unet")
         vae_path = self._resolve(vae_path, "vae")
-        clip_path = self._resolve(clip_l_path, "clip")
-        t5_path = self._resolve(t5_path, "clip")
+        text_encoder_path = self._resolve(text_encoder_path, "clip")
 
         # Определяем тип модели
         model_type = "auto"
@@ -418,8 +407,7 @@ class Flux2TrainModelPaths:
         flux2_models = {
             "transformer": transformer_path,
             "vae": vae_path,
-            "clip_l": clip_path,
-            "t5": t5_path,
+            "text_encoder": text_encoder_path,
             "lora_path": lora_path,
             "model_type": model_type,
         }
@@ -899,8 +887,10 @@ class Flux2InitTraining:
         config_dict = {
             # Модели
             "pretrained_model_name_or_path": flux2_models["transformer"],
-            "clip_l": flux2_models["clip_l"],
-            "t5xxl": flux2_models["t5"],
+            # Flux.2: один текстовый энкодер (например qwen_3_8b)
+            # В train loop используем его как T5-поток, CLIP-L отключаем
+            "clip_l": None,
+            "t5xxl": flux2_models["text_encoder"],
             "ae": flux2_models["vae"],
             
             # LoRA/DoRA
