@@ -33,11 +33,30 @@ def _safe_move_module(module: torch.nn.Module, device, dtype=None, module_name: 
         )
         return False
 
-    if dtype is not None:
-        module.to(device, dtype=dtype)
-    else:
-        module.to(device)
-    return True
+    try:
+        if dtype is not None:
+            module.to(device, dtype=dtype)
+        else:
+            module.to(device)
+        return True
+    except torch.OutOfMemoryError:
+        logger.warning(
+            "skip moving %s to %s: CUDA out of memory (keeping current placement)",
+            module_name,
+            device,
+        )
+        return False
+    except RuntimeError as e:
+        msg = str(e).lower()
+        if "out of memory" in msg or "allocation on device" in msg:
+            logger.warning(
+                "skip moving %s to %s: %s (keeping current placement)",
+                module_name,
+                device,
+                e,
+            )
+            return False
+        raise
 
 class FluxNetworkTrainer(NetworkTrainer):
     def __init__(self):
@@ -249,15 +268,21 @@ class FluxNetworkTrainer(NetworkTrainer):
                 _safe_move_module(text_encoders[0], accelerator.device, dtype=weight_dtype, module_name="clip_l")  # always not fp8
             moved_t5xxl = _safe_move_module(text_encoders[1], accelerator.device, module_name="t5_stream")
             if not moved_t5xxl:
-                raise ValueError(
-                    "Text encoder contains meta tensors and cannot be moved to GPU. "
-                    "For Flux.2 Klein use qwen_3_8b_fp8mixed.safetensors as text encoder."
+                if _module_has_meta_tensors(text_encoders[1]):
+                    raise ValueError(
+                        "Text encoder contains meta tensors and cannot be used for caching. "
+                        "For Flux.2 Klein use qwen_3_8b_fp8mixed.safetensors as text encoder."
+                    )
+                logger.warning(
+                    "[AUTO-FIX] t5_stream remains on CPU due memory pressure. "
+                    "Text encoder output caching will run on CPU (slower, but stable for low VRAM)."
                 )
+                clean_memory_on_device(accelerator.device)
 
-            if text_encoders[1].dtype == torch.float8_e4m3fn:
+            if moved_t5xxl and text_encoders[1].dtype == torch.float8_e4m3fn:
                 # if we load fp8 weights, the model is already fp8, so we use it as is
                 self.prepare_text_encoder_fp8(1, text_encoders[1], text_encoders[1].dtype, weight_dtype)
-            else:
+            elif moved_t5xxl:
                 # otherwise, we need to convert it to target dtype
                 text_encoders[1].to(weight_dtype)
 
@@ -309,8 +334,9 @@ class FluxNetworkTrainer(NetworkTrainer):
             if text_encoders[0] is not None and not self.is_train_text_encoder(args):
                 logger.info("move CLIP-L back to cpu")
                 _safe_move_module(text_encoders[0], "cpu", module_name="clip_l")
-            logger.info("move t5XXL back to cpu")
-            _safe_move_module(text_encoders[1], "cpu", module_name="t5_stream")
+            if moved_t5xxl:
+                logger.info("move t5XXL back to cpu")
+                _safe_move_module(text_encoders[1], "cpu", module_name="t5_stream")
             clean_memory_on_device(accelerator.device)
 
             if not args.lowram:
@@ -324,7 +350,7 @@ class FluxNetworkTrainer(NetworkTrainer):
             if text_encoders[0] is not None:
                 _safe_move_module(text_encoders[0], accelerator.device, dtype=weight_dtype, module_name="clip_l")
             moved_t5xxl = _safe_move_module(text_encoders[1], accelerator.device, module_name="t5_stream")
-            if not moved_t5xxl:
+            if not moved_t5xxl and _module_has_meta_tensors(text_encoders[1]):
                 raise ValueError(
                     "Text encoder contains meta tensors and cannot be moved to GPU. "
                     "For Flux.2 Klein use qwen_3_8b_fp8mixed.safetensors as text encoder."

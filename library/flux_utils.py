@@ -104,15 +104,20 @@ def _load_qwen_like_text_encoder(sd: dict) -> QwenLikeTextEncoderAdapter:
     config = _infer_qwen2_config_from_state_dict(sd)
     qwen = Qwen2Model(config)
 
-    filtered_sd = {
-        key: value
-        for key, value in sd.items()
-        if not key.startswith("lm_head.")
-        and not key.endswith(".weight_scale")
-        and not key.endswith(".comfy_quant")
-    }
+    model_keys = set(qwen.state_dict().keys())
 
-    info = qwen.load_state_dict(filtered_sd, strict=False)
+    filtered_sd = {}
+    for key, value in sd.items():
+        if key.startswith("lm_head."):
+            continue
+        if key.endswith(".weight_scale") or key.endswith(".weight_scale_2") or key.endswith(".comfy_quant"):
+            continue
+
+        normalized_key = key[6:] if key.startswith("model.") else key
+        if normalized_key in model_keys:
+            filtered_sd[normalized_key] = value
+
+    info = qwen.load_state_dict(filtered_sd, strict=False, assign=True)
     logger.info(f"Loaded Qwen-like text encoder: {info}")
 
     qwen.eval()
