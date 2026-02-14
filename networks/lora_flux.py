@@ -525,6 +525,9 @@ class LoRANetwork(torch.nn.Module):
         def create_modules(
             is_flux: bool, text_encoder_idx: Optional[int], root_module: torch.nn.Module, target_replace_modules: List[str]
         ) -> List[LoRAModule]:
+            if root_module is None:
+                return [], []
+
             prefix = (
                 self.LORA_PREFIX_FLUX
                 if is_flux
@@ -603,6 +606,10 @@ class LoRANetwork(torch.nn.Module):
                 break
 
             logger.info(f"create LoRA for Text Encoder {index+1}:")
+
+            if text_encoder is None:
+                logger.info(f"skip LoRA for Text Encoder {index+1}: encoder is None")
+                continue
 
             text_encoder_loras, skipped = create_modules(False, index, text_encoder, LoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE)
             logger.info(f"create LoRA for Text Encoder {index+1}: {len(text_encoder_loras)} modules.")
