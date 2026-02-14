@@ -38,6 +38,18 @@ logger = logging.getLogger(__name__)
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
 
+_ANSI_ORANGE = "\033[38;5;208m"
+_ANSI_RESET = "\033[0m"
+
+
+def _log_orange_banner(title: str, subtitle: str = "") -> None:
+    border = "=" * 68
+    logger.info(f"{_ANSI_ORANGE}{border}{_ANSI_RESET}")
+    logger.info(f"{_ANSI_ORANGE}>>> {title}{_ANSI_RESET}")
+    if subtitle:
+        logger.info(f"{_ANSI_ORANGE}{subtitle}{_ANSI_RESET}")
+    logger.info(f"{_ANSI_ORANGE}{border}{_ANSI_RESET}")
+
 
 def _create_dataset_preview_grid_file(
     dataset_path: str,
@@ -1132,6 +1144,10 @@ class Flux2InitTraining:
                 json.dump(extra_pnginfo.get("workflow", {}), f, indent=4, ensure_ascii=False)
         
         # Инициализируем тренер
+        _log_orange_banner(
+            "FLUX.2 WORKFLOW START",
+            f"Init: {'DoRA' if is_dora else 'LoRA'} | model={flux2_models.get('model_type', 'unknown')} | output={output_name}",
+        )
         logger.info("=" * 60)
         logger.info(f"Initializing Flux.2 {'DoRA' if is_dora else 'LoRA'} Training")
         logger.info(f"  Model type: {flux2_models.get('model_type', 'unknown')}")
@@ -1202,6 +1218,13 @@ class Flux2TrainLoop:
         with torch.inference_mode(False):
             training_loop = network_trainer["training_loop"]
             trainer = network_trainer["network_trainer"]
+
+            if not network_trainer.get("_start_banner_logged"):
+                _log_orange_banner(
+                    "FLUX.2 TRAINING LOOP START",
+                    f"global_step={trainer.global_step} -> +{steps} steps (max={trainer.args.max_train_steps})",
+                )
+                network_trainer["_start_banner_logged"] = True
             
             target_global_step = trainer.global_step + steps
             comfy_pbar = comfy.utils.ProgressBar(steps)

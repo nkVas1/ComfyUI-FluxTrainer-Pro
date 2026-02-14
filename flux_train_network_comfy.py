@@ -13,6 +13,32 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+def _module_has_meta_tensors(module: torch.nn.Module) -> bool:
+    for parameter in module.parameters(recurse=True):
+        if getattr(parameter, "is_meta", False):
+            return True
+    for buffer in module.buffers(recurse=True):
+        if getattr(buffer, "is_meta", False):
+            return True
+    return False
+
+
+def _safe_move_module(module: torch.nn.Module, device, dtype=None, module_name: str = "module") -> bool:
+    if _module_has_meta_tensors(module):
+        logger.warning(
+            "skip moving %s to %s: module contains meta tensors (keeping current placement)",
+            module_name,
+            device,
+        )
+        return False
+
+    if dtype is not None:
+        module.to(device, dtype=dtype)
+    else:
+        module.to(device)
+    return True
+
 class FluxNetworkTrainer(NetworkTrainer):
     def __init__(self):
         super().__init__()
@@ -205,13 +231,16 @@ class FluxNetworkTrainer(NetworkTrainer):
         self, args, accelerator: Accelerator, unet, vae, text_encoders, dataset: train_util.DatasetGroup, weight_dtype
     ):
         if args.cache_text_encoder_outputs:
+            moved_vae_to_cpu = False
+            moved_unet_to_cpu = False
+
             if not args.lowram:
                 # reduce memory consumption
                 logger.info("move vae and unet to cpu to save memory")
                 org_vae_device = vae.device
                 org_unet_device = unet.device
-                vae.to("cpu")
-                unet.to("cpu")
+                moved_vae_to_cpu = _safe_move_module(vae, "cpu", module_name="vae")
+                moved_unet_to_cpu = _safe_move_module(unet, "cpu", module_name="unet")
                 clean_memory_on_device(accelerator.device)
 
             # When TE is not be trained, it will not be prepared so we need to use explicit autocast
@@ -281,8 +310,10 @@ class FluxNetworkTrainer(NetworkTrainer):
 
             if not args.lowram:
                 logger.info("move vae and unet back to original device")
-                vae.to(org_vae_device)
-                unet.to(org_unet_device)
+                if moved_vae_to_cpu:
+                    _safe_move_module(vae, org_vae_device, module_name="vae")
+                if moved_unet_to_cpu:
+                    _safe_move_module(unet, org_unet_device, module_name="unet")
         else:
             # Text Encoder
             if text_encoders[0] is not None:
