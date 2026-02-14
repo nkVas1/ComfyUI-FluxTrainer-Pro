@@ -246,8 +246,13 @@ class FluxNetworkTrainer(NetworkTrainer):
             # When TE is not be trained, it will not be prepared so we need to use explicit autocast
             logger.info("move text encoders to gpu")
             if text_encoders[0] is not None:
-                text_encoders[0].to(accelerator.device, dtype=weight_dtype)  # always not fp8
-            text_encoders[1].to(accelerator.device)
+                _safe_move_module(text_encoders[0], accelerator.device, dtype=weight_dtype, module_name="clip_l")  # always not fp8
+            moved_t5xxl = _safe_move_module(text_encoders[1], accelerator.device, module_name="t5_stream")
+            if not moved_t5xxl:
+                raise ValueError(
+                    "Text encoder contains meta tensors and cannot be moved to GPU. "
+                    "For Flux.2 Klein use qwen_3_8b_fp8mixed.safetensors as text encoder."
+                )
 
             if text_encoders[1].dtype == torch.float8_e4m3fn:
                 # if we load fp8 weights, the model is already fp8, so we use it as is
@@ -303,9 +308,9 @@ class FluxNetworkTrainer(NetworkTrainer):
             # move back to cpu
             if text_encoders[0] is not None and not self.is_train_text_encoder(args):
                 logger.info("move CLIP-L back to cpu")
-                text_encoders[0].to("cpu")
+                _safe_move_module(text_encoders[0], "cpu", module_name="clip_l")
             logger.info("move t5XXL back to cpu")
-            text_encoders[1].to("cpu")
+            _safe_move_module(text_encoders[1], "cpu", module_name="t5_stream")
             clean_memory_on_device(accelerator.device)
 
             if not args.lowram:
@@ -317,8 +322,13 @@ class FluxNetworkTrainer(NetworkTrainer):
         else:
             # Text Encoder
             if text_encoders[0] is not None:
-                text_encoders[0].to(accelerator.device, dtype=weight_dtype)
-            text_encoders[1].to(accelerator.device)
+                _safe_move_module(text_encoders[0], accelerator.device, dtype=weight_dtype, module_name="clip_l")
+            moved_t5xxl = _safe_move_module(text_encoders[1], accelerator.device, module_name="t5_stream")
+            if not moved_t5xxl:
+                raise ValueError(
+                    "Text encoder contains meta tensors and cannot be moved to GPU. "
+                    "For Flux.2 Klein use qwen_3_8b_fp8mixed.safetensors as text encoder."
+                )
 
     def sample_images(self, epoch, global_step, validation_settings):
         text_encoders = self.get_models_for_text_encoding(self.args, self.accelerator, self.text_encoder)

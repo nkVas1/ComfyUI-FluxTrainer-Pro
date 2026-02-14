@@ -45,6 +45,28 @@ _ANSI_RESET = "\033[0m"
 def _log_orange_banner(title: str, subtitle: str = "") -> None:
     border = "=" * 68
     logger.info(f"{_ANSI_ORANGE}{border}{_ANSI_RESET}")
+
+
+def _resolve_flux2_text_encoder_path(text_encoder_path: str) -> str:
+    if not text_encoder_path:
+        return text_encoder_path
+
+    basename = os.path.basename(text_encoder_path).lower()
+    if basename != "qwen_3_8b.safetensors":
+        return text_encoder_path
+
+    parent_dir = os.path.dirname(text_encoder_path)
+    preferred_name = "qwen_3_8b_fp8mixed.safetensors"
+    preferred_path = os.path.join(parent_dir, preferred_name)
+    if os.path.exists(preferred_path):
+        logger.warning(
+            "[AUTO-FIX] Detected %s; switching to recommended Flux.2 Klein checkpoint: %s",
+            os.path.basename(text_encoder_path),
+            preferred_name,
+        )
+        return preferred_path
+
+    return text_encoder_path
     logger.info(f"{_ANSI_ORANGE}>>> {title}{_ANSI_RESET}")
     if subtitle:
         logger.info(f"{_ANSI_ORANGE}{subtitle}{_ANSI_RESET}")
@@ -987,14 +1009,16 @@ class Flux2InitTraining:
                 effective_blocks_to_swap,
             )
         
+        resolved_text_encoder = _resolve_flux2_text_encoder_path(flux2_models["text_encoder"])
+
         config_dict = {
             # Модели
             "pretrained_model_name_or_path": flux2_models["transformer"],
             # Flux.2: один текстовый энкодер (например qwen_3_8b)
             # В train loop используем его как T5-поток, CLIP-L отключаем
-            "text_encoder": flux2_models["text_encoder"],
+            "text_encoder": resolved_text_encoder,
             "clip_l": None,
-            "t5xxl": flux2_models["text_encoder"],
+            "t5xxl": resolved_text_encoder,
             "ae": flux2_models["vae"],
             
             # LoRA/DoRA
@@ -1059,7 +1083,7 @@ class Flux2InitTraining:
             "sdpa": True,
             
             # Flux-specific - используем параметры из INPUT
-            "t5xxl_max_token_length": 256 if "qwen" in os.path.basename(flux2_models["text_encoder"]).lower() else 512,
+            "t5xxl_max_token_length": 256 if "qwen" in os.path.basename(resolved_text_encoder).lower() else 512,
             "apply_t5_attn_mask": True,
             "weighting_scheme": weighting_scheme,
             "logit_mean": 0.0,
