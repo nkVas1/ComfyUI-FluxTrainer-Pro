@@ -91,6 +91,23 @@ def weighs_to_device(layer: nn.Module, device: torch.device):
             module.weight.data = module.weight.data.to(device, non_blocking=True)
 
 
+def _safe_move_module(module: nn.Module, device: torch.device):
+    try:
+        module.to(device)
+        return
+    except NotImplementedError as e:
+        msg = str(e).lower()
+        if "meta tensor" not in msg:
+            raise
+
+    # fallback for modules that still contain meta parameters
+    try:
+        module.to_empty(device=device)
+    except TypeError:
+        # old torch signatures may require kwargs explicitly
+        module.to_empty(device=device)
+
+
 class Offloader:
     """
     common offloading class
@@ -202,11 +219,11 @@ class ModelOffloader(Offloader):
             print("Prepare block devices before forward")
 
         for b in blocks[0 : self.num_blocks - self.blocks_to_swap]:
-            b.to(self.device)
+            _safe_move_module(b, self.device)
             weighs_to_device(b, self.device)  # make sure weights are on device
 
         for b in blocks[self.num_blocks - self.blocks_to_swap :]:
-            b.to(self.device)  # move block to device first
+            _safe_move_module(b, self.device)  # move block to device first
             weighs_to_device(b, "cpu")  # make sure weights are on cpu
 
         synchronize_device(self.device)

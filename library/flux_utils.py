@@ -512,6 +512,19 @@ def load_flow_model(
                     getattr(candidate, "mlp_gated", False),
                 )
             logger.info(f"Loaded Flux: {info}")
+
+            if hasattr(model, "materialize_meta_tensors"):
+                try:
+                    meta_params, meta_buffers = model.materialize_meta_tensors(torch.device("cpu"))
+                    if meta_params or meta_buffers:
+                        logger.warning(
+                            "Flux model had residual meta tensors after load; materialized on CPU (params=%d, buffers=%d)",
+                            meta_params,
+                            meta_buffers,
+                        )
+                except Exception as meta_err:
+                    logger.warning("Failed to materialize residual meta tensors: %s", meta_err)
+
             return is_schnell, model
         except RuntimeError as e:
             last_error = e
