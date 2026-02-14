@@ -169,6 +169,8 @@ class NetworkTrainer:
 
     def cache_text_encoder_outputs_if_needed(self, args, accelerator, unet, vae, text_encoders, dataset, weight_dtype):
         for t_enc in text_encoders:
+            if t_enc is None:
+                continue
             t_enc.to(accelerator.device, dtype=weight_dtype)
 
     def call_unet(self, args, accelerator, unet, noisy_latents, timesteps, text_conds, batch, weight_dtype, **kwargs):
@@ -641,6 +643,8 @@ class NetworkTrainer:
         unet.requires_grad_(False)
         unet.to(dtype=unet_weight_dtype)
         for i, t_enc in enumerate(text_encoders):
+            if t_enc is None:
+                continue
             t_enc.requires_grad_(False)
 
             # in case of cpu, dtype is already set to fp32 because cpu does not support fp8/fp16/bf16
@@ -692,6 +696,8 @@ class NetworkTrainer:
             # according to TI example in Diffusers, train is required
             unet.train()
             for i, (t_enc, frag) in enumerate(zip(text_encoders, self.get_text_encoders_train_flags(args, text_encoders))):
+                if t_enc is None:
+                    continue
                 t_enc.train()
 
                 # set top parameter requires_grad = True for gradient checkpointing works
@@ -701,6 +707,8 @@ class NetworkTrainer:
         else:
             unet.eval()
             for t_enc in text_encoders:
+                if t_enc is None:
+                    continue
                 t_enc.eval()
 
         del t_enc

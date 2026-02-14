@@ -25,6 +25,8 @@ import shutil
 import time
 import glob
 import logging
+import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, Callable
 
@@ -45,6 +47,10 @@ _ANSI_RESET = "\033[0m"
 def _log_orange_banner(title: str, subtitle: str = "") -> None:
     border = "=" * 68
     logger.info(f"{_ANSI_ORANGE}{border}{_ANSI_RESET}")
+    logger.info(f"{_ANSI_ORANGE}>>> {title}{_ANSI_RESET}")
+    if subtitle:
+        logger.info(f"{_ANSI_ORANGE}{subtitle}{_ANSI_RESET}")
+    logger.info(f"{_ANSI_ORANGE}{border}{_ANSI_RESET}")
 
 
 def _resolve_flux2_text_encoder_path(text_encoder_path: str) -> str:
@@ -60,10 +66,179 @@ def _resolve_flux2_text_encoder_path(text_encoder_path: str) -> str:
         os.path.basename(text_encoder_path),
     )
     return text_encoder_path
-    logger.info(f"{_ANSI_ORANGE}>>> {title}{_ANSI_RESET}")
-    if subtitle:
-        logger.info(f"{_ANSI_ORANGE}{subtitle}{_ANSI_RESET}")
-    logger.info(f"{_ANSI_ORANGE}{border}{_ANSI_RESET}")
+
+
+class _SystemMetricsMonitor:
+    def __init__(self, log_path: str, interval_seconds: int = 90):
+        self.log_path = log_path
+        self.interval_seconds = max(30, int(interval_seconds))
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self._stage = "init"
+        self._nvml_handle = None
+
+    def set_stage(self, stage: str) -> None:
+        with self._lock:
+            self._stage = stage
+
+    def _ensure_nvml(self):
+        if self._nvml_handle is not None:
+            return self._nvml_handle
+        try:
+            import pynvml
+
+            pynvml.nvmlInit()
+            self._nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        except Exception:
+            self._nvml_handle = None
+        return self._nvml_handle
+
+    def _read_cpu_temp(self):
+        try:
+            import psutil
+
+            temps = psutil.sensors_temperatures() or {}
+            for _, entries in temps.items():
+                for entry in entries:
+                    current = getattr(entry, "current", None)
+                    if current is not None:
+                        return float(current)
+        except Exception:
+            pass
+        return None
+
+    def _sample(self) -> Dict[str, Any]:
+        row: Dict[str, Any] = {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "stage": self._stage,
+            "cpu_percent": None,
+            "cpu_temp_c": None,
+            "ram_used_gb": None,
+            "ram_percent": None,
+            "gpu_util_percent": None,
+            "gpu_temp_c": None,
+            "vram_used_gb": None,
+            "vram_total_gb": None,
+            "cuda_allocated_gb": None,
+            "cuda_reserved_gb": None,
+        }
+
+        try:
+            import psutil
+
+            row["cpu_percent"] = round(float(psutil.cpu_percent(interval=None)), 2)
+            vm = psutil.virtual_memory()
+            row["ram_used_gb"] = round(float(vm.used) / (1024**3), 3)
+            row["ram_percent"] = round(float(vm.percent), 2)
+            row["cpu_temp_c"] = self._read_cpu_temp()
+        except Exception:
+            pass
+
+        try:
+            handle = self._ensure_nvml()
+            if handle is not None:
+                import pynvml
+
+                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+
+                row["gpu_util_percent"] = float(util.gpu)
+                row["gpu_temp_c"] = float(temp)
+                row["vram_used_gb"] = round(float(mem.used) / (1024**3), 3)
+                row["vram_total_gb"] = round(float(mem.total) / (1024**3), 3)
+        except Exception:
+            pass
+
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                row["cuda_allocated_gb"] = round(float(torch.cuda.memory_allocated(0)) / (1024**3), 3)
+                row["cuda_reserved_gb"] = round(float(torch.cuda.memory_reserved(0)) / (1024**3), 3)
+        except Exception:
+            pass
+
+        return row
+
+    def _ensure_header(self):
+        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        if not os.path.exists(self.log_path) or os.path.getsize(self.log_path) == 0:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(
+                    "timestamp,stage,cpu_percent,cpu_temp_c,ram_used_gb,ram_percent,gpu_util_percent,gpu_temp_c,vram_used_gb,vram_total_gb,cuda_allocated_gb,cuda_reserved_gb\n"
+                )
+
+    def _append_row(self, row: Dict[str, Any]):
+        def _fmt(value):
+            return "" if value is None else str(value)
+
+        with open(self.log_path, "a", encoding="utf-8") as f:
+            f.write(
+                ",".join(
+                    [
+                        _fmt(row.get("timestamp")),
+                        _fmt(row.get("stage")),
+                        _fmt(row.get("cpu_percent")),
+                        _fmt(row.get("cpu_temp_c")),
+                        _fmt(row.get("ram_used_gb")),
+                        _fmt(row.get("ram_percent")),
+                        _fmt(row.get("gpu_util_percent")),
+                        _fmt(row.get("gpu_temp_c")),
+                        _fmt(row.get("vram_used_gb")),
+                        _fmt(row.get("vram_total_gb")),
+                        _fmt(row.get("cuda_allocated_gb")),
+                        _fmt(row.get("cuda_reserved_gb")),
+                    ]
+                )
+                + "\n"
+            )
+
+    def _run(self):
+        while not self._stop_event.is_set():
+            with self._lock:
+                stage = self._stage
+            row = self._sample()
+            row["stage"] = stage
+            try:
+                self._append_row(row)
+            except Exception:
+                pass
+            self._stop_event.wait(self.interval_seconds)
+
+    def start(self):
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._ensure_header()
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run, name="flux2-system-monitor", daemon=True)
+            self._thread.start()
+
+    def stop(self):
+        with self._lock:
+            thread = self._thread
+            self._stop_event.set()
+            self._thread = None
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
+
+
+def _start_system_monitor(container: Dict[str, Any], stage: str = "training"):
+    monitor = container.get("_system_monitor")
+    if monitor is None:
+        return
+    monitor.set_stage(stage)
+    monitor.start()
+
+
+def _stop_system_monitor(container: Dict[str, Any], stage: str = "paused"):
+    monitor = container.get("_system_monitor")
+    if monitor is None:
+        return
+    monitor.set_stage(stage)
+    monitor.stop()
 
 
 def _create_dataset_preview_grid_file(
@@ -1004,6 +1179,16 @@ class Flux2InitTraining:
         
         resolved_text_encoder = _resolve_flux2_text_encoder_path(flux2_models["text_encoder"])
 
+        cpu_threads = os.cpu_count() or 8
+        data_loader_workers = min(8, max(2, cpu_threads // 3))
+        cpu_threads_per_process = min(6, max(2, cpu_threads // 4))
+        logger.info(
+            "[AUTO-TUNE] CPU threads=%d | dataloader_workers=%d | cpu_threads_per_process=%d",
+            cpu_threads,
+            data_loader_workers,
+            cpu_threads_per_process,
+        )
+
         config_dict = {
             # Модели
             "pretrained_model_name_or_path": flux2_models["transformer"],
@@ -1067,9 +1252,9 @@ class Flux2InitTraining:
             # Misc
             "sample_prompts": prompts_list,
             "network_train_unet_only": True,
-            "persistent_data_loader_workers": False,
-            "max_data_loader_n_workers": 2,
-            "num_cpu_threads_per_process": 1,
+            "persistent_data_loader_workers": True,
+            "max_data_loader_n_workers": data_loader_workers,
+            "num_cpu_threads_per_process": cpu_threads_per_process,
             "disable_mmap_load_safetensors": False,
             "mem_eff_attn": True,
             "xformers": False,
@@ -1177,11 +1362,18 @@ class Flux2InitTraining:
             logger.info(f"  Resuming from: {os.path.basename(resume_checkpoint)}")
         logger.info("=" * 60)
         
+        metrics_log_path = os.path.join(output_dir, f"{output_name}_{network_suffix}_system_metrics.csv")
+        system_monitor = _SystemMetricsMonitor(metrics_log_path, interval_seconds=90)
+        system_monitor.set_stage("init_train")
+        system_monitor.start()
+
         with torch.inference_mode(False):
             network_trainer = FluxNetworkTrainer()
             try:
                 training_loop = network_trainer.init_train(args)
             except Exception as e:
+                system_monitor.set_stage("init_failed")
+                system_monitor.stop()
                 try:
                     from .training_state import TrainingState
                     TrainingState.instance().finish_training(
@@ -1191,6 +1383,9 @@ class Flux2InitTraining:
                 except Exception:
                     pass
                 raise RuntimeError(f"Flux.2 init_train failed: {e}") from e
+
+        system_monitor.set_stage("paused")
+        system_monitor.stop()
         
         final_output_path = os.path.join(output_dir, f"{output_name}_rank{network_dim}_{save_dtype}")
         epochs_count = network_trainer.num_train_epochs
@@ -1198,6 +1393,8 @@ class Flux2InitTraining:
         trainer = {
             "network_trainer": network_trainer,
             "training_loop": training_loop,
+            "_system_monitor": system_monitor,
+            "_system_metrics_log": metrics_log_path,
         }
         
         return (trainer, epochs_count, final_output_path, args)
@@ -1235,6 +1432,7 @@ class Flux2TrainLoop:
         with torch.inference_mode(False):
             training_loop = network_trainer["training_loop"]
             trainer = network_trainer["network_trainer"]
+            _start_system_monitor(network_trainer, stage="train_loop")
 
             if not network_trainer.get("_start_banner_logged"):
                 _log_orange_banner(
@@ -1249,20 +1447,22 @@ class Flux2TrainLoop:
             
             trainer.optimizer_train_fn()
             
-            while trainer.global_step < target_global_step:
-                steps_done = training_loop(
-                    break_at_steps=target_global_step,
-                    epoch=trainer.current_epoch.value,
-                )
-                
-                # Прерываем если достигли максимума
-                if trainer.global_step >= trainer.args.max_train_steps:
-                    break
+            try:
+                while trainer.global_step < target_global_step:
+                    steps_done = training_loop(
+                        break_at_steps=target_global_step,
+                        epoch=trainer.current_epoch.value,
+                    )
+                    
+                    # Прерываем если достигли максимума
+                    if trainer.global_step >= trainer.args.max_train_steps:
+                        break
+            finally:
+                _stop_system_monitor(network_trainer, stage="paused")
             
-            result = {
-                "network_trainer": trainer,
-                "training_loop": training_loop,
-            }
+            result = dict(network_trainer)
+            result["network_trainer"] = trainer
+            result["training_loop"] = training_loop
         
         return (result, trainer.global_step)
 
@@ -1304,6 +1504,7 @@ class Flux2TrainAndValidateLoop:
         with torch.inference_mode(False):
             training_loop = network_trainer["training_loop"]
             trainer = network_trainer["network_trainer"]
+            _start_system_monitor(network_trainer, stage="train_validate_loop")
             
             target_global_step = trainer.args.max_train_steps
             comfy_pbar = comfy.utils.ProgressBar(target_global_step)
@@ -1311,31 +1512,33 @@ class Flux2TrainAndValidateLoop:
             
             trainer.optimizer_train_fn()
             
-            while trainer.global_step < target_global_step:
-                next_validate_step = ((trainer.global_step // validate_at_steps) + 1) * validate_at_steps
-                next_save_step = ((trainer.global_step // save_at_steps) + 1) * save_at_steps
-                
-                steps_done = training_loop(
-                    break_at_steps=min(next_validate_step, next_save_step),
-                    epoch=trainer.current_epoch.value,
-                )
-                
-                # Валидация
-                if trainer.global_step % validate_at_steps == 0:
-                    self._validate(trainer, validation_settings)
-                
-                # Сохранение
-                if trainer.global_step % save_at_steps == 0:
-                    self._save(trainer)
-                
-                # Прерываем если достигли максимума
-                if trainer.global_step >= trainer.args.max_train_steps:
-                    break
+            try:
+                while trainer.global_step < target_global_step:
+                    next_validate_step = ((trainer.global_step // validate_at_steps) + 1) * validate_at_steps
+                    next_save_step = ((trainer.global_step // save_at_steps) + 1) * save_at_steps
+                    
+                    steps_done = training_loop(
+                        break_at_steps=min(next_validate_step, next_save_step),
+                        epoch=trainer.current_epoch.value,
+                    )
+                    
+                    # Валидация
+                    if trainer.global_step % validate_at_steps == 0:
+                        self._validate(trainer, validation_settings)
+                    
+                    # Сохранение
+                    if trainer.global_step % save_at_steps == 0:
+                        self._save(trainer)
+                    
+                    # Прерываем если достигли максимума
+                    if trainer.global_step >= trainer.args.max_train_steps:
+                        break
+            finally:
+                _stop_system_monitor(network_trainer, stage="paused")
             
-            result = {
-                "network_trainer": trainer,
-                "training_loop": training_loop,
-            }
+            result = dict(network_trainer)
+            result["network_trainer"] = trainer
+            result["training_loop"] = training_loop
         
         return (result, trainer.global_step)
     
@@ -1472,6 +1675,7 @@ class Flux2TrainEnd:
         clean_memory_on_device = modules["clean_memory_on_device"]
         
         trainer = network_trainer["network_trainer"]
+        _start_system_monitor(network_trainer, stage="end_training")
         
         # Финальное сохранение
         final_ckpt_name = train_util.get_last_ckpt_name(
@@ -1507,6 +1711,8 @@ class Flux2TrainEnd:
             )
         except Exception:
             pass
+
+        _stop_system_monitor(network_trainer, stage="completed")
 
         return (final_path,)
 
