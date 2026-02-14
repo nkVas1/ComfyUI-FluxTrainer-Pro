@@ -33,8 +33,7 @@ The extension provides automatic memory optimization strategies:
 Select your Flux.2 model files:
 - **transformer**: The main transformer model (.safetensors)
 - **vae**: VAE model (ae.safetensors)
-- **clip_l**: CLIP-L text encoder
-- **t5**: T5-XXL text encoder (fp8 recommended for low VRAM)
+- **text_encoder**: Single text encoder for Flux.2 (for Klein 9B use `qwen_3_8b.safetensors`)
 
 #### 2. Flux.2 Low VRAM Config
 Configure memory optimization:
@@ -94,7 +93,7 @@ Model: Flux.2 Klein 9B
 Strategy: aggressive
 Blocks to swap: 25
 Gradient checkpointing: True
-CPU offload checkpointing: True
+CPU offload checkpointing: True (auto-disabled when blocks_to_swap > 0)
 Cache latents: disk
 Cache text encoder outputs: disk
 FP8 base: True
@@ -145,8 +144,7 @@ See `example_workflows/flux2_lora_low_vram_example.json` for a complete workflow
 Выбор файлов модели Flux.2:
 - **transformer**: Основная модель трансформера (.safetensors)
 - **vae**: VAE модель (ae.safetensors)
-- **clip_l**: CLIP-L text encoder
-- **t5**: T5-XXL text encoder (рекомендуется fp8 для низкого VRAM)
+- **text_encoder**: Один текстовый энкодер для Flux.2 (для Klein 9B используйте `qwen_3_8b.safetensors`)
 
 #### 2. Flux.2 Low VRAM Config
 Настройка оптимизации памяти:
@@ -206,7 +204,7 @@ See `example_workflows/flux2_lora_low_vram_example.json` for a complete workflow
 Стратегия: aggressive
 Блоков для свапа: 25
 Gradient checkpointing: True
-CPU offload checkpointing: True
+CPU offload checkpointing: True (авто-отключится при blocks_to_swap > 0)
 Кэширование latents: disk
 Кэширование text encoder: disk
 FP8 база: True
@@ -237,6 +235,12 @@ Optimizer fusing: fused_backward_pass
 2. Включите `optimizer_cpu_offload`
 3. Уменьшите `network_dim` (LoRA rank)
 4. Уменьшите разрешение изображений в датасете
+
+#### Error(s) in loading state_dict for Flux (size mismatch)
+1. Используйте актуальную версию плагина (в ней включён авто-инференс архитектуры из checkpoint)
+2. Для Flux.2 Klein 9B укажите `text_encoder=qwen_3_8b.safetensors`
+3. Убедитесь, что выбран именно Flux.2 checkpoint, а не Flux.1
+4. Перезапустите ComfyUI после обновления `custom_nodes/ComfyUI-FluxTrainer`
 
 #### Медленное обучение
 1. Уменьшите `blocks_to_swap` если возможно

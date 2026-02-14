@@ -101,23 +101,54 @@ def analyze_checkpoint_state(ckpt_path: str) -> Tuple[bool, bool, Tuple[int, int
     if keys[0].startswith("model.diffusion_model."):
         keys = [key.replace("model.diffusion_model.", "") for key in keys]
 
-    is_diffusers = "transformer_blocks.0.attn.add_k_proj.bias" in keys
-    is_schnell = not ("guidance_in.in_layer.bias" in keys or "time_text_embed.guidance_embedder.linear_1.bias" in keys)
+    is_diffusers = any(k.startswith("transformer_blocks.") for k in keys)
+    is_schnell = not (
+        "guidance_in.in_layer.bias" in keys
+        or "guidance_in.in_layer.weight" in keys
+        or "time_text_embed.guidance_embedder.linear_1.bias" in keys
+        or "time_text_embed.guidance_embedder.linear_1.weight" in keys
+    )
 
     # check number of double and single blocks
     if not is_diffusers:
-        double_indices = [int(key.split(".")[1]) for key in keys if key.startswith("double_blocks.") and key.endswith(".img_attn.proj.bias")]
-        single_indices = [int(key.split(".")[1]) for key in keys if key.startswith("single_blocks.") and key.endswith(".modulation.lin.bias")]
-    else:
         double_indices = [
             int(key.split(".")[1])
             for key in keys
-            if key.startswith("transformer_blocks.") and key.endswith(".attn.add_k_proj.bias")
+            if key.startswith("double_blocks.")
+            and (
+                key.endswith(".img_attn.proj.weight")
+                or key.endswith(".img_attn.proj.bias")
+                or key.endswith(".img_mlp.0.weight")
+            )
         ]
         single_indices = [
             int(key.split(".")[1])
             for key in keys
-            if key.startswith("single_transformer_blocks.") and key.endswith(".attn.to_k.bias")
+            if key.startswith("single_blocks.")
+            and (
+                key.endswith(".linear1.weight")
+                or key.endswith(".linear2.weight")
+                or key.endswith(".modulation.lin.bias")
+            )
+        ]
+    else:
+        double_indices = [
+            int(key.split(".")[1])
+            for key in keys
+            if key.startswith("transformer_blocks.")
+            and (
+                key.endswith(".attn.add_k_proj.weight")
+                or key.endswith(".attn.add_k_proj.bias")
+            )
+        ]
+        single_indices = [
+            int(key.split(".")[1])
+            for key in keys
+            if key.startswith("single_transformer_blocks.")
+            and (
+                key.endswith(".attn.to_k.weight")
+                or key.endswith(".attn.to_k.bias")
+            )
         ]
 
     if not double_indices or not single_indices:
@@ -138,29 +169,97 @@ def analyze_checkpoint_state(ckpt_path: str) -> Tuple[bool, bool, Tuple[int, int
     return is_diffusers, is_schnell, (num_double_blocks, num_single_blocks), ckpt_paths
 
 
+def _infer_flux_params_from_state_dict(base_params, sd: dict):
+    """Инференс ключевых архитектурных параметров Flux по формам тензоров в state_dict."""
+    params = base_params
+
+    img_in_weight = sd.get("img_in.weight")
+    txt_in_weight = sd.get("txt_in.weight")
+    ds_mlp_weight = sd.get("double_blocks.0.img_mlp.0.weight")
+    ss_linear1_weight = sd.get("single_blocks.0.linear1.weight")
+
+    inferred = {}
+
+    if img_in_weight is not None and img_in_weight.ndim == 2:
+        inferred_hidden_size = int(img_in_weight.shape[0])
+        inferred_in_channels = int(img_in_weight.shape[1])
+        inferred["hidden_size"] = inferred_hidden_size
+        inferred["in_channels"] = inferred_in_channels
+
+    if txt_in_weight is not None and txt_in_weight.ndim == 2:
+        inferred["context_in_dim"] = int(txt_in_weight.shape[1])
+
+    hidden_size = inferred.get("hidden_size", params.hidden_size)
+
+    if ds_mlp_weight is not None and ds_mlp_weight.ndim == 2 and hidden_size > 0:
+        inferred["mlp_ratio"] = float(ds_mlp_weight.shape[0]) / float(hidden_size)
+    elif ss_linear1_weight is not None and ss_linear1_weight.ndim == 2 and hidden_size > 0:
+        mlp_hidden_dim = int(ss_linear1_weight.shape[0]) - 3 * int(hidden_size)
+        if mlp_hidden_dim > 0:
+            inferred["mlp_ratio"] = float(mlp_hidden_dim) / float(hidden_size)
+
+    # depth inference from block keys
+    double_indices = [
+        int(k.split(".")[1])
+        for k in sd.keys()
+        if k.startswith("double_blocks.")
+        and (
+            k.endswith(".img_attn.proj.weight")
+            or k.endswith(".img_attn.proj.bias")
+            or k.endswith(".img_mlp.0.weight")
+        )
+    ]
+    single_indices = [
+        int(k.split(".")[1])
+        for k in sd.keys()
+        if k.startswith("single_blocks.")
+        and (
+            k.endswith(".linear1.weight")
+            or k.endswith(".linear2.weight")
+            or k.endswith(".modulation.lin.bias")
+        )
+    ]
+    if double_indices:
+        inferred["depth"] = max(double_indices) + 1
+    if single_indices:
+        inferred["depth_single_blocks"] = max(single_indices) + 1
+
+    # infer guidance support
+    has_guidance = any(k.startswith("guidance_in.") for k in sd.keys())
+    inferred["guidance_embed"] = has_guidance
+
+    # keep RoPE axes consistent: sum(axes_dim)=hidden/num_heads
+    axes_sum = sum(params.axes_dim)
+    if hidden_size % axes_sum == 0:
+        inferred["num_heads"] = hidden_size // axes_sum
+
+    # apply inferred values only when valid
+    if "num_heads" in inferred and inferred["num_heads"] <= 0:
+        inferred.pop("num_heads", None)
+    if "mlp_ratio" in inferred and inferred["mlp_ratio"] <= 0:
+        inferred.pop("mlp_ratio", None)
+
+    if inferred:
+        logger.info(
+            "Inferred Flux params from checkpoint: "
+            f"in_channels={inferred.get('in_channels', params.in_channels)}, "
+            f"context_in_dim={inferred.get('context_in_dim', params.context_in_dim)}, "
+            f"hidden_size={inferred.get('hidden_size', params.hidden_size)}, "
+            f"mlp_ratio={inferred.get('mlp_ratio', params.mlp_ratio):.3f}, "
+            f"num_heads={inferred.get('num_heads', params.num_heads)}, "
+            f"depth={inferred.get('depth', params.depth)}, "
+            f"depth_single_blocks={inferred.get('depth_single_blocks', params.depth_single_blocks)}, "
+            f"guidance_embed={inferred.get('guidance_embed', params.guidance_embed)}"
+        )
+        params = replace(params, **inferred)
+
+    return params
+
+
 def load_flow_model(
     ckpt_path: str, dtype: Optional[torch.dtype], device: Union[str, torch.device], disable_mmap: bool = False
 ) -> Tuple[bool, Flux]:
     is_diffusers, is_schnell, (num_double_blocks, num_single_blocks), ckpt_paths = analyze_checkpoint_state(ckpt_path)
-    name = MODEL_NAME_DEV if not is_schnell else MODEL_NAME_SCHNELL
-
-    # build model
-    logger.info(f"Building Flux model {name} from {'Diffusers' if is_diffusers else 'BFL'} checkpoint")
-    with torch.device("meta"):
-        params = configs[name].params
-
-        # set the number of blocks
-        if params.depth != num_double_blocks:
-            logger.info(f"Setting the number of double blocks from {params.depth} to {num_double_blocks}")
-            params = replace(params, depth=num_double_blocks)
-        if params.depth_single_blocks != num_single_blocks:
-            logger.info(f"Setting the number of single blocks from {params.depth_single_blocks} to {num_single_blocks}")
-            params = replace(params, depth_single_blocks=num_single_blocks)
-
-        model = Flux(params)
-        if dtype is not None:
-            model = model.to(dtype)
-
     # load_sft doesn't support torch.device
     logger.info(f"Loading state dict from {ckpt_path}")
     sd = {}
@@ -178,6 +277,40 @@ def load_flow_model(
         if new_key == key:
             break
         sd[new_key] = sd.pop(key)
+
+    # choose base config and infer params from checkpoint tensors
+    if not is_schnell:
+        base_name = MODEL_NAME_DEV
+    else:
+        base_name = MODEL_NAME_SCHNELL
+
+    if "img_in.weight" in sd and sd["img_in.weight"].shape[0] >= 4096:
+        base_name = MODEL_NAME_FLUX2_KLEIN_9B
+
+    params = configs[base_name].params
+
+    # set block counts from checkpoint analysis as initial values
+    if params.depth != num_double_blocks:
+        params = replace(params, depth=num_double_blocks)
+    if params.depth_single_blocks != num_single_blocks:
+        params = replace(params, depth_single_blocks=num_single_blocks)
+
+    # infer architecture from state_dict to avoid size mismatch
+    params = _infer_flux_params_from_state_dict(params, sd)
+
+    # align is_schnell with inferred guidance support
+    is_schnell = not params.guidance_embed
+
+    logger.info(
+        f"Building Flux model {base_name} from {'Diffusers' if is_diffusers else 'BFL'} checkpoint "
+        f"(hidden={params.hidden_size}, in={params.in_channels}, context={params.context_in_dim}, "
+        f"depth={params.depth}/{params.depth_single_blocks}, heads={params.num_heads}, mlp_ratio={params.mlp_ratio})"
+    )
+
+    with torch.device("meta"):
+        model = Flux(params)
+        if dtype is not None:
+            model = model.to(dtype)
 
     info = model.load_state_dict(sd, strict=False, assign=True)
     logger.info(f"Loaded Flux: {info}")

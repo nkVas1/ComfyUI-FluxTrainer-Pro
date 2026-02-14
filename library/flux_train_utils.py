@@ -520,6 +520,12 @@ def save_flux_model_on_epoch_end_or_stepwise(
 
 def add_flux_train_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
+        "--text_encoder",
+        type=str,
+        default=None,
+        help="single text encoder path for Flux.2 mode (e.g. qwen_3_8b.safetensors)",
+    )
+    parser.add_argument(
         "--clip_l",
         type=str,
         help="path to clip_l (*.sft or *.safetensors), should be float16 / clip_lのパス（*.sftまたは*.safetensors）、float16が前提",

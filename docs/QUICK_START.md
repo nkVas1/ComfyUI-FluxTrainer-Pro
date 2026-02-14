@@ -48,8 +48,7 @@ training_data/
 Добавьте ноду `Flux2TrainModelSelect` и укажите:
 - **Transformer**: flux2_klein_9b или flux2_dev
 - **VAE**: ae.safetensors
-- **CLIP-L**: clip_l.safetensors  
-- **T5**: t5xxl_fp16.safetensors
+- **Text Encoder**: для Klein 9B используйте `qwen_3_8b.safetensors`
 
 ### 3. Создайте датасет
 
@@ -84,6 +83,7 @@ training_data/
 3. **cache_latents: disk** - кэширование на диск экономит VRAM
 4. **gradient_dtype: bf16** - bf16 стабильнее fp16
 5. **Включите FP8 base** через `Flux2LowVRAMConfig`
+6. Для 8 ГБ VRAM используйте `blocks_to_swap=25` и не включайте одновременно `cpu_offload_checkpointing`
 
 ---
 

@@ -526,6 +526,29 @@ class Flux2LowVRAMConfig:
                 use_fp8_base=use_fp8_base,
                 empty_cache_frequently=empty_cache_frequently,
             )
+
+        # ========================================================
+        # 8GB AUTO-TUNE: безопасные дефолты для RTX 3060 Ti и аналогов
+        # ========================================================
+        if available_vram_gb <= 8.5:
+            if config.blocks_to_swap < 25:
+                logger.warning(
+                    "[AUTO-TUNE] Для <=8.5GB VRAM увеличиваем blocks_to_swap: %d -> 25",
+                    config.blocks_to_swap,
+                )
+                config.blocks_to_swap = 25
+
+            if not config.use_fp8_base:
+                logger.warning("[AUTO-TUNE] Для <=8.5GB VRAM принудительно включаем FP8 base")
+                config.use_fp8_base = True
+
+            if not config.optimizer_offload_to_cpu:
+                logger.warning("[AUTO-TUNE] Для <=8.5GB VRAM включаем optimizer_offload_to_cpu")
+                config.optimizer_offload_to_cpu = True
+
+            if not config.cache_text_encoder_outputs:
+                logger.warning("[AUTO-TUNE] Для <=8.5GB VRAM включаем cache_text_encoder_outputs")
+                config.cache_text_encoder_outputs = True
         
         # Выводим рекомендации
         mem_estimate = config.estimate_memory_usage(9.0)  # Для Klein 9B
@@ -889,6 +912,7 @@ class Flux2InitTraining:
             "pretrained_model_name_or_path": flux2_models["transformer"],
             # Flux.2: один текстовый энкодер (например qwen_3_8b)
             # В train loop используем его как T5-поток, CLIP-L отключаем
+            "text_encoder": flux2_models["text_encoder"],
             "clip_l": None,
             "t5xxl": flux2_models["text_encoder"],
             "ae": flux2_models["vae"],
@@ -955,7 +979,7 @@ class Flux2InitTraining:
             "sdpa": True,
             
             # Flux-specific - используем параметры из INPUT
-            "t5xxl_max_token_length": 512,
+            "t5xxl_max_token_length": 256 if "qwen" in os.path.basename(flux2_models["text_encoder"]).lower() else 512,
             "apply_t5_attn_mask": True,
             "weighting_scheme": weighting_scheme,
             "logit_mean": 0.0,

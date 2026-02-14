@@ -24,6 +24,10 @@ class FluxNetworkTrainer(NetworkTrainer):
         super().assert_extra_args(args, train_dataset_group)
         # sdxl_train_util.verify_sdxl_training_args(args)
 
+        # Flux.2 single-encoder mode: --text_encoder как алиас для --t5xxl
+        if getattr(args, "text_encoder", None) and not getattr(args, "t5xxl", None):
+            args.t5xxl = args.text_encoder
+
         if args.fp8_base_unet:
             args.fp8_base = True  # if fp8_base_unet is enabled, fp8_base is also enabled for FLUX.1
 
@@ -41,6 +45,9 @@ class FluxNetworkTrainer(NetworkTrainer):
         # prepare CLIP-L/T5XXL training flags
         self.train_clip_l = not args.network_train_unet_only
         self.train_t5xxl = False  # default is False even if args.network_train_unet_only is False
+
+        if not getattr(args, "clip_l", None):
+            self.train_clip_l = False
 
         if args.max_token_length is not None:
             logger.warning("max_token_length is not used in Flux training / max_token_lengthはFluxのトレーニングでは使用されません")
@@ -116,8 +123,14 @@ class FluxNetworkTrainer(NetworkTrainer):
     def get_tokenize_strategy(self, args):
         _, is_schnell, _, _ = flux_utils.analyze_checkpoint_state(args.pretrained_model_name_or_path)
 
+        text_encoder_path = getattr(args, "text_encoder", None) or getattr(args, "t5xxl", None)
+        is_qwen_encoder = bool(text_encoder_path and "qwen" in str(text_encoder_path).lower())
+
         if args.t5xxl_max_token_length is None:
-            if is_schnell:
+            if is_qwen_encoder:
+                # Для Qwen-энкодера на 8GB VRAM более безопасный лимит токенов
+                t5xxl_max_token_length = 256
+            elif is_schnell:
                 t5xxl_max_token_length = 256
             else:
                 t5xxl_max_token_length = 512
@@ -153,6 +166,8 @@ class FluxNetworkTrainer(NetworkTrainer):
             else:
                 return None  # no text encoders are needed for encoding because both are cached
         else:
+            if text_encoders and len(text_encoders) > 1 and text_encoders[0] is None:
+                return [None, text_encoders[1]]  # single-encoder mode (T5 stream only)
             return text_encoders  # both CLIP-L and T5XXL are needed for encoding
 
     def get_text_encoders_train_flags(self, args, text_encoders):
