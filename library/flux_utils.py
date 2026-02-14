@@ -1,13 +1,20 @@
 from dataclasses import replace
 import json
 import os
+import re
 from typing import List, Optional, Tuple, Union
 import einops
 import torch
+import torch.nn as nn
 
 from safetensors import safe_open
 from accelerate import init_empty_weights
 from transformers import CLIPTextModel, CLIPConfig, T5EncoderModel, T5Config
+try:
+    from transformers import Qwen2Config, Qwen2Model
+except Exception:
+    Qwen2Config = None
+    Qwen2Model = None
 
 from .flux_models import Flux, AutoEncoder, configs
 from .utils import setup_logging, load_safetensors
@@ -16,6 +23,100 @@ setup_logging()
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class QwenLikeTextEncoderAdapter(nn.Module):
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+
+    @property
+    def dtype(self):
+        param = next(self.parameters(), None)
+        return param.dtype if param is not None else torch.float32
+
+    @property
+    def device(self):
+        param = next(self.parameters(), None)
+        return param.device if param is not None else torch.device("cpu")
+
+    def forward(self, input_ids, attention_mask=None, return_dict=False, output_hidden_states=True):
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            return_dict=True,
+            output_hidden_states=output_hidden_states,
+            use_cache=False,
+        )
+        if return_dict:
+            return outputs
+        return outputs.last_hidden_state, None
+
+
+def _infer_qwen2_config_from_state_dict(sd: dict) -> "Qwen2Config":
+    embed_key = "model.embed_tokens.weight"
+    if embed_key not in sd:
+        raise ValueError("Qwen-like state dict missing model.embed_tokens.weight")
+
+    vocab_size, hidden_size = sd[embed_key].shape
+
+    layer_pattern = re.compile(r"^model\.layers\.(\d+)\.")
+    layer_indices = []
+    for key in sd.keys():
+        match = layer_pattern.match(key)
+        if match:
+            layer_indices.append(int(match.group(1)))
+    num_hidden_layers = max(layer_indices) + 1 if layer_indices else 32
+
+    gate_proj_key = next((k for k in sd.keys() if k.endswith(".mlp.gate_proj.weight")), None)
+    intermediate_size = sd[gate_proj_key].shape[0] if gate_proj_key else hidden_size * 4
+
+    q_proj_key = next((k for k in sd.keys() if k.endswith(".self_attn.q_proj.weight")), None)
+    k_proj_key = next((k for k in sd.keys() if k.endswith(".self_attn.k_proj.weight")), None)
+    q_norm_key = next((k for k in sd.keys() if k.endswith(".self_attn.q_norm.weight")), None)
+
+    q_out = sd[q_proj_key].shape[0] if q_proj_key else hidden_size
+    k_out = sd[k_proj_key].shape[0] if k_proj_key else hidden_size
+    head_dim = sd[q_norm_key].shape[0] if q_norm_key and sd[q_norm_key].ndim == 1 else 128
+    if head_dim <= 0:
+        head_dim = 128
+
+    num_attention_heads = max(1, q_out // head_dim)
+    num_key_value_heads = max(1, k_out // head_dim)
+
+    return Qwen2Config(
+        vocab_size=vocab_size,
+        hidden_size=hidden_size,
+        intermediate_size=intermediate_size,
+        num_hidden_layers=num_hidden_layers,
+        num_attention_heads=num_attention_heads,
+        num_key_value_heads=num_key_value_heads,
+        max_position_embeddings=32768,
+        tie_word_embeddings=False,
+        rms_norm_eps=1e-6,
+    )
+
+
+def _load_qwen_like_text_encoder(sd: dict) -> QwenLikeTextEncoderAdapter:
+    if Qwen2Model is None or Qwen2Config is None:
+        raise ValueError("transformers package in this environment does not provide Qwen2Model")
+
+    config = _infer_qwen2_config_from_state_dict(sd)
+    qwen = Qwen2Model(config)
+
+    filtered_sd = {
+        key: value
+        for key, value in sd.items()
+        if not key.startswith("lm_head.")
+        and not key.endswith(".weight_scale")
+        and not key.endswith(".comfy_quant")
+    }
+
+    info = qwen.load_state_dict(filtered_sd, strict=False)
+    logger.info(f"Loaded Qwen-like text encoder: {info}")
+
+    qwen.eval()
+    return QwenLikeTextEncoderAdapter(qwen)
 
 # Model version constants
 MODEL_VERSION_FLUX_V1 = "flux1"
@@ -628,6 +729,7 @@ def load_t5xxl(
             "Recommended checkpoint for Klein 9B: qwen_3_8b_fp8mixed.safetensors",
             ckpt_path,
         )
+        return _load_qwen_like_text_encoder(sd)
 
     info = t5xxl.load_state_dict(sd, strict=False, assign=True)
     logger.info(f"Loaded T5xxl: {info}")
@@ -635,8 +737,14 @@ def load_t5xxl(
 
 
 def get_t5xxl_actual_dtype(t5xxl: T5EncoderModel) -> torch.dtype:
-    # nn.Embedding is the first layer, but it could be casted to bfloat16 or float32
-    return t5xxl.encoder.block[0].layer[0].SelfAttention.q.weight.dtype
+    if hasattr(t5xxl, "encoder") and hasattr(t5xxl.encoder, "block"):
+        # nn.Embedding is the first layer, but it could be casted to bfloat16 or float32
+        return t5xxl.encoder.block[0].layer[0].SelfAttention.q.weight.dtype
+
+    first_param = next(t5xxl.parameters(), None)
+    if first_param is not None:
+        return first_param.dtype
+    return torch.float32
 
 
 def prepare_img_ids(batch_size: int, packed_latent_height: int, packed_latent_width: int):

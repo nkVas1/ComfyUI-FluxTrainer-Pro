@@ -531,7 +531,10 @@ class FluxNetworkTrainer(NetworkTrainer):
         if index == 0:  # CLIP-L
             return super().prepare_text_encoder_grad_ckpt_workaround(index, text_encoder)
         else:  # T5XXL
-            text_encoder.encoder.embed_tokens.requires_grad_(True)
+            if hasattr(text_encoder, "encoder") and hasattr(text_encoder.encoder, "embed_tokens"):
+                text_encoder.encoder.embed_tokens.requires_grad_(True)
+            elif hasattr(text_encoder, "model") and hasattr(text_encoder.model, "embed_tokens"):
+                text_encoder.model.embed_tokens.requires_grad_(True)
 
     def prepare_text_encoder_fp8(self, index, text_encoder, te_weight_dtype, weight_dtype):
         if index == 0:  # CLIP-L
@@ -539,6 +542,11 @@ class FluxNetworkTrainer(NetworkTrainer):
             text_encoder.to(te_weight_dtype)  # fp8
             text_encoder.text_model.embeddings.to(dtype=weight_dtype)
         else:  # T5XXL
+
+            if not hasattr(text_encoder, "encoder"):
+                logger.info("prepare text encoder fp8 (generic): set dtype to target and skip T5-specific hooks")
+                text_encoder.to(te_weight_dtype)
+                return
 
             def prepare_fp8(text_encoder, target_dtype):
                 def forward_hook(module):
