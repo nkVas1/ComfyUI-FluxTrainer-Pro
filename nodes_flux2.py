@@ -72,6 +72,8 @@ class _SystemMetricsMonitor:
     def __init__(self, log_path: str, interval_seconds: int = 90):
         self.log_path = log_path
         self.interval_seconds = max(30, int(interval_seconds))
+        self.warmup_interval_seconds = 10
+        self.warmup_samples = 12
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
@@ -196,6 +198,7 @@ class _SystemMetricsMonitor:
             )
 
     def _run(self):
+        sample_index = 0
         while not self._stop_event.is_set():
             with self._lock:
                 stage = self._stage
@@ -205,7 +208,11 @@ class _SystemMetricsMonitor:
                 self._append_row(row)
             except Exception:
                 pass
-            self._stop_event.wait(self.interval_seconds)
+            sample_index += 1
+            wait_seconds = self.interval_seconds
+            if sample_index <= self.warmup_samples:
+                wait_seconds = self.warmup_interval_seconds
+            self._stop_event.wait(wait_seconds)
 
     def start(self):
         with self._lock:

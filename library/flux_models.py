@@ -1101,11 +1101,61 @@ class Flux(nn.Module):
             self.double_blocks = None
             self.single_blocks = None
 
+        meta_params, meta_buffers = self.materialize_meta_tensors(device)
+        if meta_params or meta_buffers:
+            print(
+                f"FLUX: Materialized meta tensors before move (params={meta_params}, buffers={meta_buffers})"
+            )
+
         self.to(device)
 
         if self.blocks_to_swap:
             self.double_blocks = save_double_blocks
             self.single_blocks = save_single_blocks
+
+    def materialize_meta_tensors(self, device: torch.device) -> tuple[int, int]:
+        def _resolve_parent_and_name(full_name: str):
+            if "." in full_name:
+                parent_name, leaf_name = full_name.rsplit(".", 1)
+                parent_module = self.get_submodule(parent_name)
+            else:
+                parent_module = self
+                leaf_name = full_name
+            return parent_module, leaf_name
+
+        meta_params = 0
+        for name, parameter in list(self.named_parameters(recurse=True)):
+            if parameter is None or not getattr(parameter, "is_meta", False):
+                continue
+
+            parent_module, leaf_name = _resolve_parent_and_name(name)
+            new_data = torch.empty(parameter.shape, dtype=parameter.dtype, device=device)
+            if new_data.is_floating_point():
+                if new_data.ndim >= 2:
+                    nn.init.kaiming_uniform_(new_data, a=math.sqrt(5))
+                else:
+                    nn.init.zeros_(new_data)
+            else:
+                new_data.zero_()
+
+            parent_module._parameters[leaf_name] = nn.Parameter(new_data, requires_grad=parameter.requires_grad)
+            meta_params += 1
+
+        meta_buffers = 0
+        for name, buffer in list(self.named_buffers(recurse=True)):
+            if buffer is None or not getattr(buffer, "is_meta", False):
+                continue
+
+            parent_module, leaf_name = _resolve_parent_and_name(name)
+            new_buffer = torch.empty(buffer.shape, dtype=buffer.dtype, device=device)
+            if new_buffer.is_floating_point():
+                new_buffer.zero_()
+            else:
+                new_buffer.zero_()
+            parent_module._buffers[leaf_name] = new_buffer
+            meta_buffers += 1
+
+        return meta_params, meta_buffers
 
     def prepare_block_swap_before_forward(self):
         if self.blocks_to_swap is None or self.blocks_to_swap == 0:
