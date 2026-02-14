@@ -13,6 +13,7 @@ FluxTrainer Pro - Training State Singleton
 
 import time
 import threading
+import tomllib
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Any
 from enum import Enum
@@ -138,6 +139,59 @@ class TrainingState:
                 self._ws_callback(event_type, data)
             except Exception:
                 pass  # Не ломать тренировку из-за WS ошибок
+
+    def _extract_dataset_info_from_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        dataset_info: Dict[str, Any] = {}
+
+        if not isinstance(config, dict):
+            return dataset_info
+
+        dataset_toml = config.get("dataset_config")
+        if not isinstance(dataset_toml, str) or not dataset_toml.strip():
+            return dataset_info
+
+        try:
+            parsed = tomllib.loads(dataset_toml)
+            datasets = parsed.get("datasets", [])
+            if not datasets:
+                return dataset_info
+
+            first_dataset = datasets[0] if isinstance(datasets[0], dict) else {}
+            subsets = first_dataset.get("subsets", []) if isinstance(first_dataset, dict) else []
+
+            image_dirs = []
+            class_tokens = []
+            subset_repeats = []
+            for subset in subsets:
+                if not isinstance(subset, dict):
+                    continue
+                image_dir = subset.get("image_dir")
+                token = subset.get("class_tokens")
+                repeats = subset.get("num_repeats")
+                if image_dir:
+                    image_dirs.append(str(image_dir))
+                if token:
+                    class_tokens.append(str(token))
+                if repeats is not None:
+                    subset_repeats.append(repeats)
+
+            dataset_info = {
+                "datasets_count": len(datasets),
+                "subsets_count": len(subsets),
+                "image_dirs": image_dirs,
+                "class_tokens": class_tokens,
+                "num_repeats": subset_repeats,
+                "resolution": first_dataset.get("resolution"),
+                "batch_size": first_dataset.get("batch_size"),
+                "enable_bucket": first_dataset.get("enable_bucket"),
+                "min_bucket_reso": first_dataset.get("min_bucket_reso"),
+                "max_bucket_reso": first_dataset.get("max_bucket_reso"),
+                "bucket_no_upscale": first_dataset.get("bucket_no_upscale"),
+            }
+        except Exception:
+            return {}
+
+        return dataset_info
     
     # === Основные методы обновления ===
     
@@ -146,6 +200,9 @@ class TrainingState:
         with self._data_lock:
             self.status = TrainingStatus.TRAINING
             self.config = config
+            inferred_dataset_info = self._extract_dataset_info_from_config(config)
+            if inferred_dataset_info:
+                self.dataset_info = inferred_dataset_info
             self.max_steps = max_steps
             self.max_epochs = max_epochs
             self.model_name = model_name
@@ -178,6 +235,9 @@ class TrainingState:
         with self._data_lock:
             self.status = TrainingStatus.PREPARING
             self.config = config
+            inferred_dataset_info = self._extract_dataset_info_from_config(config)
+            if inferred_dataset_info:
+                self.dataset_info = inferred_dataset_info
             self.model_name = model_name
             self.error_message = ""
             self.last_update_time = time.time()
@@ -185,6 +245,15 @@ class TrainingState:
         self._emit_ws("fluxtrainer.status", {
             "status": TrainingStatus.PREPARING.value,
             "message": "Подготовка тренировки",
+        })
+
+    def set_dataset_info(self, dataset_info: Dict[str, Any]):
+        with self._data_lock:
+            self.dataset_info = dataset_info if isinstance(dataset_info, dict) else {}
+            self.last_update_time = time.time()
+
+        self._emit_ws("fluxtrainer.dataset", {
+            "dataset_info": self.dataset_info,
         })
     
     def update_step(self, step: int, loss: float, lr: float = 0.0, 

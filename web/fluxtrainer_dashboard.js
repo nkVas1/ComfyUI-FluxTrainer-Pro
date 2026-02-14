@@ -554,6 +554,7 @@ class FTProAPI {
     async getVRAM(last = 100) { return this._request(`vram?last=${last}`); }
     async getSamples(last = 20) { return this._request(`samples?last=${last}`); }
     async getConfig() { return this._request('config'); }
+    async getDataset() { return this._request('dataset'); }
     async getPresets() { return this._request('presets/list'); }
     async savePreset(data) {
         return this._request('presets/save', {
@@ -1194,6 +1195,14 @@ class FTProDashboard {
             this._updateMonitorTab(data);
         }
 
+        if (this.isOpen && this.currentTab === 'dataset') {
+            this._loadDatasetPanel();
+        }
+
+        if (this.isOpen && this.currentTab === 'presets') {
+            this._loadPresetsPanel();
+        }
+
         // Footer
         const footerTime = this._elements.dashboard?.querySelector('#ftpro-footer-time');
         if (footerTime) {
@@ -1366,6 +1375,8 @@ class FTProDashboard {
         if (tabId === 'config') this._loadConfigPanel();
         // Load samples when switching to samples tab  
         if (tabId === 'samples') this._loadSamplesPanel();
+        // Load dataset info
+        if (tabId === 'dataset') this._loadDatasetPanel();
         // Load presets
         if (tabId === 'presets') this._loadPresetsPanel();
     }
@@ -1376,7 +1387,16 @@ class FTProDashboard {
             if (!container) return;
             
             const configData = await this.api.getConfig();
-            if (!configData?.config || Object.keys(configData.config).length === 0) return;
+            if (!configData?.config || Object.keys(configData.config).length === 0) {
+                container.innerHTML = `
+                    <div class="ftpro-empty-state">
+                        <div class="ftpro-empty-icon">⚙️</div>
+                        <div class="ftpro-empty-title">Конфигурация ещё не получена</div>
+                        <div class="ftpro-empty-desc">Запустите Flux2InitTraining: параметры появятся на этапе PREPARING.</div>
+                    </div>
+                `;
+                return;
+            }
 
         const config = configData.config;
         let html = `<div class="ftpro-section-title">⚙️ Текущие параметры: ${configData.model_name || 'Unknown'}</div>`;
@@ -1394,6 +1414,64 @@ class FTProDashboard {
         container.innerHTML = html;
         } catch (e) {
             console.debug('[FTPro] Config panel load error:', e.message);
+        }
+    }
+
+    async _loadDatasetPanel() {
+        try {
+            const panel = this._elements.dashboard.querySelector('#ftpro-panel-dataset .ftpro-card');
+            if (!panel) return;
+
+            const data = await this.api.getDataset();
+            const info = data?.dataset_info || {};
+
+            const subsetInfo = Array.isArray(info.subset_info) ? info.subset_info : [];
+            if (!Object.keys(info).length && !subsetInfo.length) {
+                panel.innerHTML = `
+                    <div class="ftpro-empty-state">
+                        <div class="ftpro-empty-icon">📁</div>
+                        <div class="ftpro-empty-title">Данные датасета ещё не доступны</div>
+                        <div class="ftpro-empty-desc">Они появятся сразу после запуска Flux2InitTraining.</div>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = `<div class="ftpro-section-title">📁 Текущий датасет</div>`;
+            html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">`;
+            html += `
+                <div style="padding:10px;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.04)">
+                    <div style="font-size:11px;color:#718096;text-transform:uppercase;letter-spacing:0.5px">Datasets</div>
+                    <div style="font-size:16px;color:#e2e8f0;margin-top:4px">${info.datasets_count ?? '—'}</div>
+                </div>
+                <div style="padding:10px;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.04)">
+                    <div style="font-size:11px;color:#718096;text-transform:uppercase;letter-spacing:0.5px">Subsets</div>
+                    <div style="font-size:16px;color:#e2e8f0;margin-top:4px">${info.subsets_count ?? '—'}</div>
+                </div>
+            `;
+            html += `</div>`;
+
+            if (Array.isArray(info.resolution)) {
+                html += `<div style="font-size:12px;color:#a0aec0;margin-bottom:8px">Resolution: ${info.resolution.join(' x ')}</div>`;
+            }
+
+            if (subsetInfo.length) {
+                html += `<div style="display:flex;flex-direction:column;gap:8px">`;
+                subsetInfo.forEach((s, idx) => {
+                    html += `
+                        <div style="padding:10px;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.04)">
+                            <div style="font-size:12px;color:#e2e8f0;font-weight:600">Subset ${idx + 1}</div>
+                            <div style="font-size:11px;color:#a0aec0;margin-top:4px;word-break:break-all">${s.image_dir || '—'}</div>
+                            <div style="font-size:11px;color:#718096;margin-top:4px">class_tokens: ${s.class_tokens || '—'} | repeats: ${s.num_repeats ?? '—'}</div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            }
+
+            panel.innerHTML = html;
+        } catch (e) {
+            console.debug('[FTPro] Dataset panel load error:', e.message);
         }
     }
 
@@ -1427,15 +1505,25 @@ class FTProDashboard {
             if (!container) return;
 
         const presetsData = await this.api.getPresets();
-        if (!presetsData?.presets?.length) return;
+        if (!presetsData?.presets?.length) {
+            container.innerHTML = `
+                <div class="ftpro-empty-state">
+                    <div class="ftpro-empty-icon">💾</div>
+                    <div class="ftpro-empty-title">Нет сохранённых пресетов</div>
+                    <div class="ftpro-empty-desc">После старта тренировки появится runtime-пресет текущей сессии.</div>
+                </div>
+            `;
+            return;
+        }
 
         let html = '<div class="ftpro-section-title">💾 Сохранённые пресеты</div>';
         presetsData.presets.forEach(p => {
+            const isRuntime = !!p.runtime;
             html += `
                 <div style="padding:12px;background:rgba(255,255,255,0.02);border-radius:8px;border:1px solid rgba(255,255,255,0.04);margin-bottom:8px;cursor:pointer"
                      onclick="this.style.borderColor='rgba(99,179,237,0.4)'">
-                    <div style="font-size:14px;font-weight:600;color:#e2e8f0">${p.name}</div>
-                    <div style="font-size:11px;color:#718096;margin-top:4px">${p.description || p.model_type} | ${p.created}</div>
+                    <div style="font-size:14px;font-weight:600;color:#e2e8f0">${p.name}${isRuntime ? ' <span style="font-size:10px;color:#63b3ed">(runtime)</span>' : ''}</div>
+                    <div style="font-size:11px;color:#718096;margin-top:4px">${p.description || p.model_type} | ${p.created || ''}</div>
                 </div>
             `;
         });

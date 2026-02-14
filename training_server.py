@@ -128,6 +128,17 @@ def setup_api_routes():
             })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
+
+    @server.routes.get("/api/fluxtrainer/dataset")
+    async def api_dataset(request):
+        """Информация по датасету текущей сессии"""
+        try:
+            return web.json_response({
+                "dataset_info": state.dataset_info,
+                "model_name": state.model_name,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
     
     # === Presets ===
     
@@ -139,6 +150,17 @@ def setup_api_routes():
         """Список сохранённых пресетов"""
         try:
             presets = []
+
+            if state.config:
+                presets.append({
+                    "name": "Текущая сессия",
+                    "filename": "__current_session__.json",
+                    "description": "Runtime preset из активной конфигурации",
+                    "model_type": state.config.get("model_type", "flux2"),
+                    "created": "runtime",
+                    "runtime": True,
+                })
+
             for f in os.listdir(_presets_dir):
                 if f.endswith('.json'):
                     fpath = os.path.join(_presets_dir, f)
@@ -189,6 +211,18 @@ def setup_api_routes():
         try:
             data = await request.json()
             filename = data.get("filename", "")
+
+            if filename == "__current_session__.json":
+                return web.json_response({
+                    "success": True,
+                    "preset": {
+                        "name": "Текущая сессия",
+                        "description": "Runtime preset из активной конфигурации",
+                        "model_type": state.config.get("model_type", "flux2"),
+                        "config": state.config,
+                    },
+                })
+
             filepath = os.path.join(_presets_dir, filename)
             
             if not os.path.exists(filepath):

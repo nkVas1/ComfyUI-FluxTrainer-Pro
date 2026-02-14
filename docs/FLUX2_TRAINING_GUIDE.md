@@ -38,7 +38,7 @@ Select your Flux.2 model files:
 #### 2. Flux.2 Low VRAM Config
 Configure memory optimization:
 - **strategy**: Memory strategy (auto/none/conservative/aggressive/extreme)
-- **blocks_to_swap**: Number of blocks to swap between GPU and CPU (0-57)
+- **blocks_to_swap**: Number of blocks to swap between GPU and CPU (effective limit depends on model, Klein 9B max is 13)
 - **gradient_checkpointing**: Enable gradient checkpointing
 - **cpu_offload_checkpointing**: Offload checkpoints to CPU (~2GB saved)
 
@@ -84,14 +84,14 @@ Expert settings for fine-tuning training dynamics:
 5. **Set batch_size=1 with gradient_accumulation=4-8**
 6. **Cache text encoder outputs to disk** - saves ~4GB VRAM
 7. **Use FP8 base model** - halves model memory
-8. **Use blocks_to_swap=20-30** - balance between speed and VRAM
+8. **For Flux.2 Klein use blocks_to_swap=10-13** - stable range for 8GB VRAM
 
 ### Recommended Settings for RTX 3060 Ti (8GB)
 
 ```
 Model: Flux.2 Klein 9B
 Strategy: aggressive
-Blocks to swap: 25
+Blocks to swap: 13
 Gradient checkpointing: True
 CPU offload checkpointing: True (auto-disabled when blocks_to_swap > 0)
 Cache latents: disk
@@ -149,7 +149,7 @@ See `example_workflows/flux2_lora_low_vram_example.json` for a complete workflow
 #### 2. Flux.2 Low VRAM Config
 Настройка оптимизации памяти:
 - **strategy**: Стратегия памяти (auto/none/conservative/aggressive/extreme)
-- **blocks_to_swap**: Количество блоков для свапа между GPU и CPU (0-57)
+- **blocks_to_swap**: Количество блоков для свапа между GPU и CPU (эффективный лимит зависит от модели, для Klein 9B максимум 13)
 - **gradient_checkpointing**: Включить gradient checkpointing
 - **cpu_offload_checkpointing**: Выгрузка checkpoints на CPU (~2 ГБ экономии)
 
@@ -195,14 +195,14 @@ See `example_workflows/flux2_lora_low_vram_example.json` for a complete workflow
 5. **Установите batch_size=1 с gradient_accumulation=4-8**
 6. **Кэшируйте выходы text encoder на диск** — экономит ~4 ГБ VRAM
 7. **Используйте FP8 базовую модель** — уменьшает память модели вдвое
-8. **Используйте blocks_to_swap=20-30** — баланс между скоростью и VRAM
+8. **Для Flux.2 Klein используйте blocks_to_swap=10-13** — стабильный диапазон для 8 ГБ VRAM
 
 ### Рекомендуемые настройки для RTX 3060 Ti (8 ГБ)
 
 ```
 Модель: Flux.2 Klein 9B
 Стратегия: aggressive
-Блоков для свапа: 25
+Блоков для свапа: 13
 Gradient checkpointing: True
 CPU offload checkpointing: True (авто-отключится при blocks_to_swap > 0)
 Кэширование latents: disk

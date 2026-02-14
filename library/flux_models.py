@@ -1050,15 +1050,38 @@ class Flux(nn.Module):
 
         print("FLUX: Gradient checkpointing disabled.")
 
+    def get_block_swap_limits(self) -> tuple[int, int, int]:
+        max_double_blocks = max(0, self.num_double_blocks - 2)
+        max_single_blocks = max(0, self.num_single_blocks - 2)
+
+        max_combined = 0
+        upper_bound = max(0, max_double_blocks * 2 + 2)
+        for candidate in range(upper_bound + 1):
+            candidate_double = candidate // 2
+            candidate_single = (candidate - candidate_double) * 2
+            if candidate_double <= max_double_blocks and candidate_single <= max_single_blocks:
+                max_combined = candidate
+
+        return max_double_blocks, max_single_blocks, max_combined
+
     def enable_block_swap(self, num_blocks: int, device: torch.device):
+        if num_blocks is None or num_blocks <= 0:
+            self.blocks_to_swap = 0
+            self.offloader_double = None
+            self.offloader_single = None
+            print("FLUX: Block swap disabled.")
+            return
+
+        max_double_blocks, max_single_blocks, max_combined = self.get_block_swap_limits()
+        if num_blocks > max_combined:
+            raise ValueError(
+                f"Cannot swap more than {max_combined} combined blocks for this model "
+                f"(double<= {max_double_blocks}, single<= {max_single_blocks}). Requested: {num_blocks}."
+            )
+
         self.blocks_to_swap = num_blocks
         double_blocks_to_swap = num_blocks // 2
         single_blocks_to_swap = (num_blocks - double_blocks_to_swap) * 2
-
-        assert double_blocks_to_swap <= self.num_double_blocks - 2 and single_blocks_to_swap <= self.num_single_blocks - 2, (
-            f"Cannot swap more than {self.num_double_blocks - 2} double blocks and {self.num_single_blocks - 2} single blocks. "
-            f"Requested {double_blocks_to_swap} double blocks and {single_blocks_to_swap} single blocks."
-        )
 
         self.offloader_double = ModelOffloader(
             self.double_blocks, self.num_double_blocks, double_blocks_to_swap, device  # , debug=True

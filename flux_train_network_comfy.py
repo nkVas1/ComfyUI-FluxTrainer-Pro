@@ -75,11 +75,25 @@ class FluxNetworkTrainer(NetworkTrainer):
             elif model.dtype == torch.float8_e4m3fn or model.dtype == torch.float8_e5m2:
                 logger.info(f"Loaded {model.dtype} FLUX model")
 
-        self.is_swapping_blocks = args.blocks_to_swap is not None and args.blocks_to_swap > 0
+        requested_blocks_to_swap = int(args.blocks_to_swap or 0)
+        max_double_blocks, max_single_blocks, max_combined_blocks = model.get_block_swap_limits()
+
+        effective_blocks_to_swap = requested_blocks_to_swap
+        if requested_blocks_to_swap > max_combined_blocks:
+            logger.warning(
+                "[AUTO-FIX] Requested blocks_to_swap=%d exceeds model limit=%d (double<=%d, single<=%d). Clamped.",
+                requested_blocks_to_swap,
+                max_combined_blocks,
+                max_double_blocks,
+                max_single_blocks,
+            )
+            effective_blocks_to_swap = max_combined_blocks
+
+        args.blocks_to_swap = effective_blocks_to_swap
+        self.is_swapping_blocks = effective_blocks_to_swap > 0
         if self.is_swapping_blocks:
-            # Swap blocks between CPU and GPU to reduce memory usage, in forward and backward passes.
-            logger.info(f"enable block swap: blocks_to_swap={args.blocks_to_swap}")
-            model.enable_block_swap(args.blocks_to_swap, accelerator.device)
+            logger.info(f"enable block swap: blocks_to_swap={effective_blocks_to_swap}")
+            model.enable_block_swap(effective_blocks_to_swap, accelerator.device)
 
         text_encoder_path = getattr(args, "text_encoder", None)
         clip_l_path = getattr(args, "clip_l", None)

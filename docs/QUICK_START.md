@@ -83,7 +83,7 @@ training_data/
 3. **cache_latents: disk** - кэширование на диск экономит VRAM
 4. **gradient_dtype: bf16** - bf16 стабильнее fp16
 5. **Включите FP8 base** через `Flux2LowVRAMConfig`
-6. Для 8 ГБ VRAM используйте `blocks_to_swap=25` и не включайте одновременно `cpu_offload_checkpointing`
+6. Для 8 ГБ VRAM и Flux.2 Klein используйте `blocks_to_swap=10-13`; значения выше будут автоматически ограничены
 
 ---
 

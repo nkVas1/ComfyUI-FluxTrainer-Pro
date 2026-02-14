@@ -408,13 +408,50 @@ def load_flow_model(
 def load_ae(
     ckpt_path: str, dtype: torch.dtype, device: Union[str, torch.device], disable_mmap: bool = False
 ) -> AutoEncoder:
-    logger.info("Building AutoEncoder")
-    with torch.device("meta"):
-        # dev and schnell have the same AE params
-        ae = AutoEncoder(configs[MODEL_NAME_DEV].ae_params).to(dtype)
-
     logger.info(f"Loading state dict from {ckpt_path}")
     sd = load_safetensors(ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype)
+
+    base_params = configs[MODEL_NAME_DEV].ae_params
+    inferred = {
+        "ch": base_params.ch,
+        "z_channels": base_params.z_channels,
+    }
+
+    encoder_conv_in = sd.get("encoder.conv_in.weight")
+    if encoder_conv_in is not None and len(encoder_conv_in.shape) >= 1:
+        inferred["ch"] = int(encoder_conv_in.shape[0])
+
+    z_from_encoder = None
+    enc_conv_out = sd.get("encoder.conv_out.weight")
+    if enc_conv_out is not None and len(enc_conv_out.shape) >= 1:
+        z_from_encoder = int(enc_conv_out.shape[0]) // 2
+
+    z_from_decoder = None
+    dec_conv_in = sd.get("decoder.conv_in.weight")
+    if dec_conv_in is not None and len(dec_conv_in.shape) >= 2:
+        z_from_decoder = int(dec_conv_in.shape[1])
+
+    if z_from_encoder is not None and z_from_decoder is not None and z_from_encoder != z_from_decoder:
+        logger.warning(
+            "AutoEncoder z_channels mismatch in checkpoint (encoder=%s, decoder=%s). Using decoder value.",
+            z_from_encoder,
+            z_from_decoder,
+        )
+
+    inferred_z = z_from_decoder if z_from_decoder is not None else z_from_encoder
+    if inferred_z is not None and inferred_z > 0:
+        inferred["z_channels"] = inferred_z
+
+    ae_params = replace(base_params, ch=inferred["ch"], z_channels=inferred["z_channels"])
+    logger.info(
+        "Building AutoEncoder (inferred): ch=%d, z_channels=%d, resolution=%d",
+        ae_params.ch,
+        ae_params.z_channels,
+        ae_params.resolution,
+    )
+    with torch.device("meta"):
+        ae = AutoEncoder(ae_params).to(dtype)
+
     info = ae.load_state_dict(sd, strict=False, assign=True)
     logger.info(f"Loaded AE: {info}")
     return ae
@@ -580,6 +617,15 @@ def load_t5xxl(
     else:
         logger.info(f"Loading state dict from {ckpt_path}")
         sd = load_safetensors(ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype)
+
+    # Fail-fast for incompatible encoder families (Qwen/Llama-style weights are not T5).
+    # This prevents misleading massive IncompatibleKeys and gives actionable guidance.
+    if "model.embed_tokens.weight" in sd and "encoder.block.0.layer.0.SelfAttention.q.weight" not in sd:
+        raise ValueError(
+            "Incompatible text encoder checkpoint: detected Qwen/Llama-style keys, but Flux trainer expects T5 encoder weights. "
+            "Please select a T5XXL-compatible encoder file for Flux training."
+        )
+
     info = t5xxl.load_state_dict(sd, strict=False, assign=True)
     logger.info(f"Loaded T5xxl: {info}")
     return t5xxl

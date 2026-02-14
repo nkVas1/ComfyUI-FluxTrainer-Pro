@@ -531,12 +531,12 @@ class Flux2LowVRAMConfig:
         # 8GB AUTO-TUNE: безопасные дефолты для RTX 3060 Ti и аналогов
         # ========================================================
         if available_vram_gb <= 8.5:
-            if config.blocks_to_swap < 25:
+            if config.blocks_to_swap < 13:
                 logger.warning(
-                    "[AUTO-TUNE] Для <=8.5GB VRAM увеличиваем blocks_to_swap: %d -> 25",
+                    "[AUTO-TUNE] Для <=8.5GB VRAM увеличиваем blocks_to_swap: %d -> 13 (безопасный минимум для Klein)",
                     config.blocks_to_swap,
                 )
-                config.blocks_to_swap = 25
+                config.blocks_to_swap = 13
 
             if not config.use_fp8_base:
                 logger.warning("[AUTO-TUNE] Для <=8.5GB VRAM принудительно включаем FP8 base")
@@ -906,6 +906,19 @@ class Flux2InitTraining:
                 "автоматически отключаем cpu_offload_checkpointing",
                 low_vram_config.blocks_to_swap
             )
+
+        model_type_for_limits = str(flux2_models.get("model_type", "")).lower()
+        max_blocks_to_swap = 13 if "klein" in model_type_for_limits else 35
+        requested_blocks_to_swap = int(getattr(low_vram_config, "blocks_to_swap", 0) or 0)
+        effective_blocks_to_swap = min(requested_blocks_to_swap, max_blocks_to_swap)
+        if requested_blocks_to_swap != effective_blocks_to_swap:
+            logger.warning(
+                "[AUTO-FIX] blocks_to_swap=%d превышает лимит для модели %s (max=%d). Используем %d.",
+                requested_blocks_to_swap,
+                flux2_models.get("model_type", "unknown"),
+                max_blocks_to_swap,
+                effective_blocks_to_swap,
+            )
         
         config_dict = {
             # Модели
@@ -956,10 +969,10 @@ class Flux2InitTraining:
             "gradient_checkpointing": low_vram_config.gradient_checkpointing,
             "cpu_offload_checkpointing": (
                 low_vram_config.cpu_offload_checkpointing
-                if not (low_vram_config.blocks_to_swap and low_vram_config.blocks_to_swap > 0)
+                if not (effective_blocks_to_swap and effective_blocks_to_swap > 0)
                 else False
             ),
-            "blocks_to_swap": low_vram_config.blocks_to_swap,
+            "blocks_to_swap": effective_blocks_to_swap,
             "fp8_base": low_vram_config.use_fp8_base,
             "fp8_base_unet": low_vram_config.use_fp8_base,
             
@@ -1022,6 +1035,25 @@ class Flux2InitTraining:
                 k: str(v) for k, v in vars(args).items()
                 if not k.startswith('_') and not callable(v)
             }
+            subset_info = []
+            for ds in dataset_json.get("datasets", []):
+                for subset in ds.get("subsets", []):
+                    subset_info.append({
+                        "image_dir": subset.get("image_dir", ""),
+                        "class_tokens": subset.get("class_tokens", ""),
+                        "num_repeats": subset.get("num_repeats", 1),
+                    })
+
+            dataset_info = {
+                "datasets_count": len(dataset_json.get("datasets", [])),
+                "subsets_count": len(subset_info),
+                "resolution": [int(width), int(height)],
+                "batch_size": dataset_json.get("datasets", [{}])[0].get("batch_size", 1) if dataset_json.get("datasets") else 1,
+                "subset_info": subset_info,
+            }
+
+            state = TrainingState.instance()
+            state.set_dataset_info(dataset_info)
             TrainingState.instance().start_preparing(
                 config=_config_snapshot,
                 model_name=f"{output_name}_{network_suffix}_rank{network_dim}_{save_dtype}",
@@ -1042,7 +1074,7 @@ class Flux2InitTraining:
         logger.info(f"  Network type: {network_type.upper()}")
         logger.info(f"  Output: {output_dir}/{output_name}")
         logger.info(f"  Network dim: {network_dim}, alpha: {network_alpha}")
-        logger.info(f"  Blocks to swap: {low_vram_config.blocks_to_swap}")
+        logger.info(f"  Blocks to swap: {effective_blocks_to_swap}")
         logger.info(f"  FP8 base: {low_vram_config.use_fp8_base}")
         if resume_checkpoint:
             logger.info(f"  Resuming from: {os.path.basename(resume_checkpoint)}")

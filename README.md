@@ -81,7 +81,7 @@ python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-FluxTra
 1. Use **Flux2 Model Select** node
 2. Add **Flux2 Low VRAM Config** with:
    - `strategy`: aggressive
-   - `blocks_to_swap`: 25
+   - `blocks_to_swap`: 13 (Klein 9B safe max)
    - Enable all offloading options
 3. Use **Flux2 Optimizer Config** with:
    - `optimizer_type`: adamw8bit
@@ -96,7 +96,7 @@ python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\ComfyUI-FluxTra
 | Model | Min VRAM | Recommended | Config |
 |-------|----------|-------------|--------|
 | Flux.1 | 12GB | 16GB+ | Standard |
-| Flux.2 Klein 9B | 8GB | 12GB+ | aggressive + 25 blocks |
+| Flux.2 Klein 9B | 8GB | 12GB+ | aggressive + 10-13 blocks |
 | Flux.2 Dev | 12GB | 24GB+ | conservative |
 
 ### 🛠️ Диагностика запуска в большом наборе custom_nodes
@@ -146,7 +146,7 @@ python install.py
 1. Используйте ноду **Flux2 Model Select**
 2. Добавьте **Flux2 Low VRAM Config**:
    - `strategy`: aggressive
-   - `blocks_to_swap`: 25
+   - `blocks_to_swap`: 13 (безопасный максимум для Klein 9B)
    - Включите все опции offloading
 3. Используйте **Flux2 Optimizer Config**:
    - `optimizer_type`: adamw8bit
@@ -161,7 +161,7 @@ python install.py
 | Модель | Мин. VRAM | Рекомендуемый | Конфиг |
 |--------|-----------|---------------|--------|
 | Flux.1 | 12GB | 16GB+ | Стандартный |
-| Flux.2 Klein 9B | 8GB | 12GB+ | aggressive + 25 блоков |
+| Flux.2 Klein 9B | 8GB | 12GB+ | aggressive + 10-13 блоков |
 | Flux.2 Dev | 12GB | 24GB+ | conservative |
 
 ---

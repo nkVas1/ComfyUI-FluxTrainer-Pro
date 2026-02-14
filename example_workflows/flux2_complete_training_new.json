@@ -693,7 +693,7 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "🚀 FLUX.2 LOW VRAM TRAINING WORKFLOW\n═══════════════════════════════════════\n\n📋 INSTRUCTIONS:\n1. Set your model paths in 'Flux.2 Model Select'\n2. Set your dataset path in 'TrainDatasetAdd' and 'DatasetPreviewGrid'\n3. Adjust 'Flux.2 Low VRAM Config' for your GPU:\n   - 8GB: aggressive, blocks_to_swap=25\n   - 12GB: conservative, blocks_to_swap=15\n4. Set class_tokens (trigger word) and num_repeats\n5. Adjust learning_rate (recommended: 1e-4 to 5e-4)\n6. Run 'Queue Prompt' to start training\n\n⚠️ TIPS FOR LOW VRAM:\n- Use batch_size=1 with gradient_accumulation\n- Enable all offloading options\n- Use 'disk' cache for latents and text encoder\n- network_dim=16 is a good balance"
+        "🚀 FLUX.2 LOW VRAM TRAINING WORKFLOW\n═══════════════════════════════════════\n\n📋 INSTRUCTIONS:\n1. Set your model paths in 'Flux.2 Model Select'\n2. Set your dataset path in 'TrainDatasetAdd' and 'DatasetPreviewGrid'\n3. Adjust 'Flux.2 Low VRAM Config' for your GPU:\n   - 8GB (Klein): aggressive, blocks_to_swap=10-13\n   - 12GB+ (Dev): conservative/aggressive, blocks_to_swap=15-25\n4. Set class_tokens (trigger word) and num_repeats\n5. Adjust learning_rate (recommended: 1e-4 to 5e-4)\n6. Run 'Queue Prompt' to start training\n\n⚠️ TIPS FOR LOW VRAM:\n- Use batch_size=1 with gradient_accumulation\n- Enable all offloading options\n- Use 'disk' cache for latents and text encoder\n- network_dim=16 is a good balance"
       ],
       "color": "#432",
       "bgcolor": "#653"
