@@ -1101,7 +1101,7 @@ class Flux(nn.Module):
             self.double_blocks = None
             self.single_blocks = None
 
-        meta_params, meta_buffers = self.materialize_meta_tensors(device)
+        meta_params, meta_buffers = self.materialize_meta_tensors(torch.device("cpu"))
         if meta_params or meta_buffers:
             print(
                 f"FLUX: Materialized meta tensors before move (params={meta_params}, buffers={meta_buffers})"
@@ -1114,6 +1114,13 @@ class Flux(nn.Module):
             self.single_blocks = save_single_blocks
 
     def materialize_meta_tensors(self, device: torch.device) -> tuple[int, int]:
+        float8_dtypes = {
+            getattr(torch, "float8_e4m3fn", None),
+            getattr(torch, "float8_e5m2", None),
+            getattr(torch, "float8_e4m3fnuz", None),
+            getattr(torch, "float8_e5m2fnuz", None),
+        }
+
         def _resolve_parent_and_name(full_name: str):
             if "." in full_name:
                 parent_name, leaf_name = full_name.rsplit(".", 1)
@@ -1123,19 +1130,27 @@ class Flux(nn.Module):
                 leaf_name = full_name
             return parent_module, leaf_name
 
+        def _init_floating_tensor(shape, target_dtype):
+            init_dtype = torch.float32 if target_dtype in float8_dtypes else target_dtype
+            tensor = torch.empty(shape, dtype=init_dtype, device=device)
+            if tensor.ndim >= 2:
+                nn.init.kaiming_uniform_(tensor, a=math.sqrt(5))
+            else:
+                nn.init.zeros_(tensor)
+            if init_dtype != target_dtype:
+                tensor = tensor.to(dtype=target_dtype)
+            return tensor
+
         meta_params = 0
         for name, parameter in list(self.named_parameters(recurse=True)):
             if parameter is None or not getattr(parameter, "is_meta", False):
                 continue
 
             parent_module, leaf_name = _resolve_parent_and_name(name)
-            new_data = torch.empty(parameter.shape, dtype=parameter.dtype, device=device)
-            if new_data.is_floating_point():
-                if new_data.ndim >= 2:
-                    nn.init.kaiming_uniform_(new_data, a=math.sqrt(5))
-                else:
-                    nn.init.zeros_(new_data)
+            if parameter.is_floating_point():
+                new_data = _init_floating_tensor(parameter.shape, parameter.dtype)
             else:
+                new_data = torch.empty(parameter.shape, dtype=parameter.dtype, device=device)
                 new_data.zero_()
 
             parent_module._parameters[leaf_name] = nn.Parameter(new_data, requires_grad=parameter.requires_grad)

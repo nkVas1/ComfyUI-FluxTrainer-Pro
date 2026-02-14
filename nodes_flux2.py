@@ -1187,13 +1187,27 @@ class Flux2InitTraining:
         resolved_text_encoder = _resolve_flux2_text_encoder_path(flux2_models["text_encoder"])
 
         cpu_threads = os.cpu_count() or 8
-        data_loader_workers = min(8, max(2, cpu_threads // 3))
-        cpu_threads_per_process = min(6, max(2, cpu_threads // 4))
+        available_ram_gb = float(getattr(low_vram_config, "available_ram_gb", 32.0) or 32.0)
+        if available_ram_gb <= 32.0:
+            data_loader_workers = min(4, max(2, cpu_threads // 6))
+            cpu_threads_per_process = min(3, max(1, cpu_threads // 8))
+            persistent_loader_workers = False
+        elif available_ram_gb <= 48.0:
+            data_loader_workers = min(6, max(2, cpu_threads // 4))
+            cpu_threads_per_process = min(4, max(2, cpu_threads // 6))
+            persistent_loader_workers = True
+        else:
+            data_loader_workers = min(8, max(2, cpu_threads // 3))
+            cpu_threads_per_process = min(6, max(2, cpu_threads // 4))
+            persistent_loader_workers = True
+
         logger.info(
-            "[AUTO-TUNE] CPU threads=%d | dataloader_workers=%d | cpu_threads_per_process=%d",
+            "[AUTO-TUNE] CPU threads=%d | RAM=%.1fGB | dataloader_workers=%d | cpu_threads_per_process=%d | persistent_workers=%s",
             cpu_threads,
+            available_ram_gb,
             data_loader_workers,
             cpu_threads_per_process,
+            persistent_loader_workers,
         )
 
         config_dict = {
@@ -1259,7 +1273,7 @@ class Flux2InitTraining:
             # Misc
             "sample_prompts": prompts_list,
             "network_train_unet_only": True,
-            "persistent_data_loader_workers": True,
+            "persistent_data_loader_workers": persistent_loader_workers,
             "max_data_loader_n_workers": data_loader_workers,
             "num_cpu_threads_per_process": cpu_threads_per_process,
             "disable_mmap_load_safetensors": False,
